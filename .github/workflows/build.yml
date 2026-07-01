@@ -4,7 +4,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-    - name: Create full featured code with local database persistence
+    - name: Create full featured code with robust Documents folder persistence
       shell: pwsh
       run: |
         $code = @"
@@ -17,7 +17,9 @@ jobs:
         ctk.set_appearance_mode("Light")  
         ctk.set_default_color_theme("blue")
 
-        DB_FILE = "tasks_database.json"
+        # STRATEGY FIXED: Force path resolution to use standard Windows User Documents folder instead of relative paths
+        USER_DOCUMENTS_DIR = os.path.join(os.path.expanduser("~"), "Documents")
+        DB_FILE = os.path.join(USER_DOCUMENTS_DIR, "time_tracker_secure_db.json")
 
         class TimeTrackerApp(ctk.CTk):
             def __init__(self):
@@ -31,7 +33,7 @@ jobs:
                 self.selected_task_id = 1
                 self.task_frames = {}
                 
-                # Load persistent data or fall back to defaults if database doesn't exist
+                # Load persistent data securely
                 self.load_data_from_db()
                 
                 self.init_ui()
@@ -46,11 +48,12 @@ jobs:
                             data = json.load(f)
                             self.tasks = data.get("tasks", [])
                             self.selected_task_id = data.get("selected_task_id", 1)
-                            return
+                            if self.tasks:
+                                return
                     except Exception:
                         pass
                 
-                # Default initial tasks if no database exists
+                # Fallback template if data is blank or first launch
                 current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
                 self.tasks = [
                     {"id": 1, "name": "Without task", "seconds": 2, "desc": "", "details": "", "task_type": "Without task", "start_h": "03", "start_m": "36", "is_pm": True, "selected": True, "date": current_date_str},
@@ -69,7 +72,7 @@ jobs:
                     with open(DB_FILE, "w", encoding="utf-8") as f:
                         json.dump(data, f, ensure_ascii=False, indent=4)
                 except Exception as e:
-                    print("Error saving to database:", e)
+                    print("Error saving database:", e)
 
             def init_ui(self):
                 # --- TOP BAR ---
@@ -165,9 +168,7 @@ jobs:
                         widget.destroy()
                 self.task_frames.clear()
                 
-                # Get the current selected task or fallback date label
                 current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
-                
                 total_seconds = sum(t["seconds"] for t in self.tasks)
                 self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)}")
                 
@@ -254,7 +255,6 @@ jobs:
                     self.btn_am.configure(fg_color="#0056b3", text_color="white")
                     self.btn_pm.configure(fg_color="transparent", text_color="black")
 
-            # --- REAL-TIME TICK LOOP ---
             def update_timer_loop(self):
                 if self.is_running:
                     for t in self.tasks:
@@ -275,8 +275,8 @@ jobs:
                             total_seconds = sum(t["seconds"] for t in self.tasks)
                             self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)}")
                             break
-                    # Periodic auto save while running every 10 seconds to ensure backup consistency
-                    if datetime.now().second % 10 == 0:
+                    # Auto save changes safely into Windows user space every 5 ticks
+                    if datetime.now().second % 5 == 0:
                         self.save_data_to_db()
                         
                 self.after(1000, self.update_timer_loop)
