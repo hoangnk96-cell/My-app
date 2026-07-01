@@ -4,7 +4,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-    - name: Tạo file code tích hợp nút Start/Stop chạy chuẩn
+    - name: Create full featured code with start stop toggle functionality
       shell: pwsh
       run: |
         $code = @"
@@ -22,7 +22,7 @@ jobs:
                 self.geometry("1000x630")
                 self.configure(fg_color="#f5f5f5")
                 
-                # MẶC ĐỊNH MỞ APP LÊN LÀ DỪNG (Không tự chạy cho đến khi nhấn Start)
+                # Default app state is stopped until user interactions
                 self.is_running = False  
                 self.is_pm = True 
                 
@@ -51,7 +51,6 @@ jobs:
                 action_frame = ctk.CTkFrame(self, fg_color="transparent")
                 action_frame.pack(fill="x", padx=20, pady=5)
                 
-                # Thiết kế nút Start ban đầu màu xanh dương để kích thích ấn
                 self.btn_toggle_work = ctk.CTkButton(action_frame, text="▶ Start work", width=110, fg_color="#0056b3", text_color="white", font=("Arial", 13, "bold"), command=self.toggle_work_status)
                 self.btn_toggle_work.pack(side="left", padx=5)
                 
@@ -74,7 +73,7 @@ jobs:
                 self.task_frames = {}
                 self.render_tasks()
 
-                # Cột phải: Form
+                # Right Column Form Panel
                 right_col = ctk.CTkFrame(main_frame, fg_color="transparent", width=320)
                 right_col.pack(side="right", fill="both", padx=(10, 0))
                 right_col.pack_propagate(False)
@@ -91,7 +90,7 @@ jobs:
                 self.combo_task = ctk.CTkComboBox(right_col, values=["Without task", "Task 1", "Task 2"], fg_color="white", text_color="black", button_color="#cbd5e1")
                 self.combo_task.pack(fill="x", pady=(0, 15))
 
-                # Start of work
+                # Start of work panel settings
                 ctk.CTkLabel(right_col, text="Start of work", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
                 start_frame = ctk.CTkFrame(right_col, fg_color="transparent")
                 start_frame.pack(fill="x", pady=(0, 15))
@@ -103,109 +102,4 @@ jobs:
                 self.entry_start_m.pack(side="left", padx=(0, 10))
                 
                 self.btn_am = ctk.CTkButton(start_frame, text="AM", width=35, height=30, fg_color="transparent", text_color="black", border_width=1, border_color="#cbd5e1", command=lambda: self.set_ampm(False))
-                self.btn_am.pack(side="left", padx=2)
-                self.btn_pm = ctk.CTkButton(start_frame, text="PM", width=35, height=30, fg_color="#0056b3", text_color="white", command=lambda: self.set_ampm(True))
-                self.btn_pm.pack(side="left", padx=2)
-
-                # Working time
-                ctk.CTkLabel(right_col, text="Working time (Manual Edit)", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
-                work_time_frame = ctk.CTkFrame(right_col, fg_color="transparent")
-                work_time_frame.pack(fill="x")
-                
-                self.entry_work_h = ctk.CTkEntry(work_time_frame, width=55, height=30, fg_color="white", text_color="black", justify="center")
-                self.entry_work_h.pack(side="left")
-                ctk.CTkLabel(work_time_frame, text=" hr  ", text_color="black").pack(side="left")
-                
-                self.entry_work_m = ctk.CTkEntry(work_time_frame, width=55, height=30, fg_color="white", text_color="black", justify="center")
-                self.entry_work_m.pack(side="left")
-                ctk.CTkLabel(work_time_frame, text=" min", text_color="black").pack(side="left")
-
-            def format_time(self, seconds):
-                if seconds < 60:
-                    return f"{seconds} sec"
-                minutes = seconds // 60
-                if minutes < 60:
-                    return f"{minutes} min"
-                hours = minutes // 60
-                rem_minutes = minutes % 60
-                return f"{hours} hr {rem_minutes} min"
-
-            def render_tasks(self):
-                for widget in self.left_col.winfo_children():
-                    if isinstance(widget, ctk.CTkFrame):
-                        widget.destroy()
-                self.task_frames.clear()
-                
-                total_seconds = sum(t["seconds"] for t in self.tasks)
-                self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
-                
-                for t in self.tasks:
-                    bg_color = "#3b82f6" if t["selected"] else "#f8f9fa"
-                    txt_color = "white" if t["selected"] else "black"
-                    
-                    task_item = ctk.CTkFrame(self.left_col, fg_color=bg_color, height=50, corner_radius=4)
-                    task_item.pack(fill="x", pady=2, padx=5)
-                    task_item.pack_propagate(False)
-                    
-                    lbl_name = ctk.CTkLabel(task_item, text=t["name"], text_color=txt_color)
-                    lbl_name.pack(side="left", padx=15)
-                    
-                    lbl_time = ctk.CTkLabel(task_item, text=self.format_time(t["seconds"]), text_color=txt_color)
-                    lbl_time.pack(side="right", padx=15)
-                    
-                    self.task_frames[t["id"]] = {"frame": task_item, "name_lbl": lbl_name, "time_lbl": lbl_time}
-                    
-                    task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
-                    lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
-                    lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
-
-            def select_task(self, item_id):
-                self.selected_task_id = item_id
-                for t in self.tasks:
-                    t["selected"] = (t["id"] == item_id)
-                self.render_tasks()
-                self.load_task_details(item_id)
-
-            def load_task_details(self, item_id):
-                for t in self.tasks:
-                    if t["id"] == item_id:
-                        self.entry_desc.delete(0, tk.END)
-                        self.entry_desc.insert(0, t["desc"])
-                        self.txt_details.delete("1.0", tk.END)
-                        self.txt_details.insert("1.0", t["details"])
-                        self.combo_task.set(t["task_type"])
-                        self.entry_start_h.delete(0, tk.END)
-                        self.entry_start_h.insert(0, t["start_h"])
-                        self.entry_start_m.delete(0, tk.END)
-                        self.entry_start_m.insert(0, t["start_m"])
-                        self.set_ampm(t["is_pm"])
-                        
-                        h = t["seconds"] // 3600
-                        m = (t["seconds"] % 3600) // 60
-                        self.entry_work_h.delete(0, tk.END)
-                        self.entry_work_h.insert(0, f"{h:02d}")
-                        self.entry_work_m.delete(0, tk.END)
-                        self.entry_work_m.insert(0, f"{m:02d}")
-                        break
-
-            def save_task_details(self):
-                for t in self.tasks:
-                    if t["id"] == self.selected_task_id:
-                        t["desc"] = self.entry_desc.get()
-                        t["details"] = self.txt_details.get("1.0", tk.END).strip()
-                        t["task_type"] = self.combo_task.get()
-                        t["start_h"] = self.entry_start_h.get()
-                        t["start_m"] = self.entry_start_m.get()
-                        t["is_pm"] = self.is_pm
-                        try:
-                            h = int(self.entry_work_h.get())
-                            m = int(self.entry_work_m.get())
-                            t["seconds"] = (h * 3600) + (m * 60)
-                        except ValueError:
-                            pass
-                        if t["desc"]:
-                            t["name"] = f"{t['desc']} • {t['task_type']}"
-                        else:
-                            t["name"] = f"Task {t['id']} • {t['task_type']}" if t["id"] != 1 else f"Without task"
-                        break
-                self.render_tasks()
+                self.btn_am
