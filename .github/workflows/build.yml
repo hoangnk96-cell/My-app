@@ -4,16 +4,20 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-    - name: Create full featured code with start stop toggle functionality
+    - name: Create full featured code with local database persistence
       shell: pwsh
       run: |
         $code = @"
         import tkinter as tk
         import customtkinter as ctk
         from datetime import datetime
+        import json
+        import os
 
         ctk.set_appearance_mode("Light")  
         ctk.set_default_color_theme("blue")
+
+        DB_FILE = "tasks_database.json"
 
         class TimeTrackerApp(ctk.CTk):
             def __init__(self):
@@ -24,18 +28,48 @@ jobs:
                 
                 self.is_running = False  
                 self.is_pm = True 
-                
-                self.tasks = [
-                    {"id": 1, "name": "Without task", "seconds": 2, "desc": "", "details": "", "task_type": "Without task", "start_h": "03", "start_m": "36", "is_pm": True, "selected": True},
-                    {"id": 2, "name": "Task 2 • Without task", "seconds": 60, "desc": "srgdfg", "details": "ádfgsfdg", "task_type": "Without task", "start_h": "01", "start_m": "20", "is_pm": True, "selected": False},
-                    {"id": 3, "name": "Task 1 • Without task", "seconds": 60, "desc": "", "details": "", "task_type": "Without task", "start_h": "11", "start_m": "05", "is_pm": False, "selected": False},
-                ]
                 self.selected_task_id = 1
                 self.task_frames = {}
                 
+                # Load persistent data or fall back to defaults if database doesn't exist
+                self.load_data_from_db()
+                
                 self.init_ui()
-                self.load_task_details(1) 
+                if self.tasks:
+                    self.load_task_details(self.selected_task_id) 
                 self.update_timer_loop()
+
+            def load_data_from_db(self):
+                if os.path.exists(DB_FILE):
+                    try:
+                        with open(DB_FILE, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            self.tasks = data.get("tasks", [])
+                            self.selected_task_id = data.get("selected_task_id", 1)
+                            return
+                    except Exception:
+                        pass
+                
+                # Default initial tasks if no database exists
+                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                self.tasks = [
+                    {"id": 1, "name": "Without task", "seconds": 2, "desc": "", "details": "", "task_type": "Without task", "start_h": "03", "start_m": "36", "is_pm": True, "selected": True, "date": current_date_str},
+                    {"id": 2, "name": "Task 2 • Without task", "seconds": 60, "desc": "srgdfg", "details": "ádfgsfdg", "task_type": "Without task", "start_h": "01", "start_m": "20", "is_pm": True, "selected": False, "date": current_date_str},
+                    {"id": 3, "name": "Task 1 • Without task", "seconds": 60, "desc": "", "details": "", "task_type": "Without task", "start_h": "11", "start_m": "05", "is_pm": False, "selected": False, "date": current_date_str},
+                ]
+                self.selected_task_id = 1
+                self.save_data_to_db()
+
+            def save_data_to_db(self):
+                try:
+                    data = {
+                        "selected_task_id": self.selected_task_id,
+                        "tasks": self.tasks
+                    }
+                    with open(DB_FILE, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=4)
+                except Exception as e:
+                    print("Error saving to database:", e)
 
             def init_ui(self):
                 # --- TOP BAR ---
@@ -53,9 +87,6 @@ jobs:
                 
                 self.btn_toggle_work = ctk.CTkButton(action_frame, text="▶ Start work", width=110, fg_color="#0056b3", text_color="white", font=("Arial", 13, "bold"), command=self.toggle_work_status)
                 self.btn_toggle_work.pack(side="left", padx=5)
-                
-                self.btn_pause = ctk.CTkButton(action_frame, text="⏸ Pause work", width=90, fg_color="transparent", text_color="black", hover_color="#e2e8f0", command=self.toggle_pause)
-                self.btn_pause.pack(side="left", padx=5)
                 
                 ctk.CTkButton(action_frame, text="💾 Save", width=70, fg_color="transparent", text_color="black", command=self.save_task_details).pack(side="right", padx=5)
                 ctk.CTkButton(action_frame, text="🗑 Delete", width=70, fg_color="transparent", text_color="black", command=self.delete_task).pack(side="right", padx=5)
@@ -134,8 +165,11 @@ jobs:
                         widget.destroy()
                 self.task_frames.clear()
                 
+                # Get the current selected task or fallback date label
+                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                
                 total_seconds = sum(t["seconds"] for t in self.tasks)
-                self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
+                self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)}")
                 
                 for t in self.tasks:
                     is_sel = t.get("selected", False)
@@ -164,6 +198,7 @@ jobs:
                     t["selected"] = (t["id"] == item_id)
                 self.render_tasks()
                 self.load_task_details(item_id)
+                self.save_data_to_db()
 
             def load_task_details(self, item_id):
                 for t in self.tasks:
@@ -208,6 +243,7 @@ jobs:
                             t["name"] = f"Task {t['id']} • {t['task_type']}" if t["id"] != 1 else f"Without task"
                         break
                 self.render_tasks()
+                self.save_data_to_db()
 
             def set_ampm(self, is_pm):
                 self.is_pm = is_pm
@@ -218,6 +254,7 @@ jobs:
                     self.btn_am.configure(fg_color="#0056b3", text_color="white")
                     self.btn_pm.configure(fg_color="transparent", text_color="black")
 
+            # --- REAL-TIME TICK LOOP ---
             def update_timer_loop(self):
                 if self.is_running:
                     for t in self.tasks:
@@ -234,34 +271,32 @@ jobs:
                                 self.entry_work_m.delete(0, tk.END)
                                 self.entry_work_m.insert(0, f"{m:02d}")
                                 
+                            current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
                             total_seconds = sum(t["seconds"] for t in self.tasks)
-                            self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
+                            self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)}")
                             break
+                    # Periodic auto save while running every 10 seconds to ensure backup consistency
+                    if datetime.now().second % 10 == 0:
+                        self.save_data_to_db()
+                        
                 self.after(1000, self.update_timer_loop)
 
             def toggle_work_status(self):
                 self.is_running = not self.is_running
                 if self.is_running:
                     self.btn_toggle_work.configure(text="⏹ Stop work", fg_color="#1f2937")
-                    self.btn_pause.configure(text="⏸ Pause work", fg_color="transparent", text_color="black")
                 else:
                     self.btn_toggle_work.configure(text="▶ Start work", fg_color="#0056b3")
-
-            def toggle_pause(self):
-                if self.is_running or self.btn_pause.cget("text") == "▶ Resume work":
-                    self.is_running = not self.is_running
-                    if self.is_running:
-                        self.btn_pause.configure(text="⏸ Pause work", fg_color="transparent", text_color="black")
-                        self.btn_toggle_work.configure(text="⏹ Stop work", fg_color="#1f2937")
-                    else:
-                        self.btn_pause.configure(text="▶ Resume work", fg_color="#e2e8f0", text_color="black")
+                self.save_data_to_db()
 
             def add_task(self):
                 new_id = max([t["id"] for t in self.tasks]) + 1 if self.tasks else 1
-                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "seconds": 0, "desc": "", "details": "", "task_type": "Without task", "start_h": "12", "start_m": "00", "is_pm": True, "selected": False}
+                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "seconds": 0, "desc": "", "details": "", "task_type": "Without task", "start_h": "12", "start_m": "00", "is_pm": True, "selected": False, "date": current_date_str}
                 self.tasks.append(new_task)
                 self.render_tasks()
                 self.select_task(new_id)
+                self.save_data_to_db()
                 
             def delete_task(self):
                 self.tasks = [t for t in self.tasks if not t.get("selected", False)]
@@ -269,6 +304,7 @@ jobs:
                     self.tasks[0]["selected"] = True
                     self.selected_task_id = self.tasks[0]["id"]
                 self.render_tasks()
+                self.save_data_to_db()
 
         if __name__ == "__main__":
             App = TimeTrackerApp()
