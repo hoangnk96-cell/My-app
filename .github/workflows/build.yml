@@ -4,7 +4,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-    - name: Tạo file code full chức năng có Timer chạy thật
+    - name: Tạo file code tích hợp nút Start/Stop chạy chuẩn
       shell: pwsh
       run: |
         $code = @"
@@ -19,22 +19,23 @@ jobs:
             def __init__(self):
                 super().__init__()
                 self.title("Time Tracking")
-                self.geometry("1000x600")
+                self.geometry("1000x630")
                 self.configure(fg_color="#f5f5f5")
                 
-                # Trạng thái đếm giờ
-                self.is_running = True  # Mặc định mở app lên là chạy luôn
+                # MẶC ĐỊNH MỞ APP LÊN LÀ DỪNG (Không tự chạy cho đến khi nhấn Start)
+                self.is_running = False  
+                self.is_pm = True 
                 
-                # Dữ liệu lưu trữ thời gian bằng giây (để đếm chính xác)
                 self.tasks = [
-                    {"id": 1, "name": "Without task", "seconds": 2, "selected": True},
-                    {"id": 2, "name": "Task 2 • Without task", "seconds": 60, "selected": False},
-                    {"id": 3, "name": "Task 1 • Without task", "seconds": 60, "selected": False},
+                    {"id": 1, "name": "Without task", "seconds": 2, "desc": "", "details": "", "task_type": "Without task", "start_h": "03", "start_m": "36", "is_pm": True},
+                    {"id": 2, "name": "Task 2 • Without task", "seconds": 60, "desc": "srgdfg", "details": "ádfgsfdg", "task_type": "Without task", "start_h": "01", "start_m": "20", "is_pm": True},
+                    {"id": 3, "name": "Task 1 • Without task", "seconds": 60, "desc": "", "details": "", "task_type": "Without task", "start_h": "11", "start_m": "05", "is_pm": False},
                 ]
                 self.selected_task_id = 1
                 
                 self.init_ui()
-                self.update_timer_loop() # Kích hoạt bộ đếm thời gian
+                self.load_task_details(1) 
+                self.update_timer_loop()
 
             def init_ui(self):
                 # --- TOP BAR ---
@@ -50,54 +51,79 @@ jobs:
                 action_frame = ctk.CTkFrame(self, fg_color="transparent")
                 action_frame.pack(fill="x", padx=20, pady=5)
                 
-                # Các nút Stop / Pause bấm được thật
-                self.btn_stop = ctk.CTkButton(action_frame, text="⏹ Stop work", width=90, fg_color="#1f2937", text_color="white", command=self.stop_work)
-                self.btn_stop.pack(side="left", padx=5)
+                # Thiết kế nút Start ban đầu màu xanh dương để kích thích ấn
+                self.btn_toggle_work = ctk.CTkButton(action_frame, text="▶ Start work", width=110, fg_color="#0056b3", text_color="white", font=("Arial", 13, "bold"), command=self.toggle_work_status)
+                self.btn_toggle_work.pack(side="left", padx=5)
                 
                 self.btn_pause = ctk.CTkButton(action_frame, text="⏸ Pause work", width=90, fg_color="transparent", text_color="black", hover_color="#e2e8f0", command=self.toggle_pause)
                 self.btn_pause.pack(side="left", padx=5)
                 
-                ctk.CTkButton(action_frame, text="💾 Save", width=70, fg_color="transparent", text_color="black").pack(side="right", padx=5)
+                ctk.CTkButton(action_frame, text="💾 Save", width=70, fg_color="transparent", text_color="black", command=self.save_task_details).pack(side="right", padx=5)
                 ctk.CTkButton(action_frame, text="🗑 Delete", width=70, fg_color="transparent", text_color="black", command=self.delete_task).pack(side="right", padx=5)
 
                 # --- MAIN BODY ---
                 main_frame = ctk.CTkFrame(self, fg_color="transparent")
                 main_frame.pack(fill="both", expand=True, padx=20, pady=10)
                 
-                # List task bên trái
                 self.left_col = ctk.CTkScrollableFrame(main_frame, fg_color="white", corner_radius=8, border_width=1, border_color="#e0e0e0")
                 self.left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
                 
-                # Tính tổng thời gian hiển thị ở tiêu đề ngày tháng
                 self.date_lbl = ctk.CTkLabel(self.left_col, text="", font=("Arial", 14, "bold"), text_color="black")
                 self.date_lbl.pack(anchor="w", padx=10, pady=10)
                 
-                self.task_frames = {} # Lưu lại các widget để cập nhật thời gian real-time không bị giật màn hình
+                self.task_frames = {}
                 self.render_tasks()
 
-                # Form bên phải
-                right_col = ctk.CTkFrame(main_frame, fg_color="transparent", width=300)
+                # Cột phải: Form
+                right_col = ctk.CTkFrame(main_frame, fg_color="transparent", width=320)
                 right_col.pack(side="right", fill="both", padx=(10, 0))
                 right_col.pack_propagate(False)
                 
-                ctk.CTkLabel(right_col, text="Description", text_color="black").pack(anchor="w", pady=(0, 2))
+                ctk.CTkLabel(right_col, text="Description", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
                 self.entry_desc = ctk.CTkEntry(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", height=35)
-                self.entry_desc.pack(fill="x", pady=(0, 15))
+                self.entry_desc.pack(fill="x", pady=(0, 10))
                 
-                ctk.CTkLabel(right_col, text="Details", text_color="black").pack(anchor="w", pady=(0, 2))
+                ctk.CTkLabel(right_col, text="Details", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
                 self.txt_details = ctk.CTkTextbox(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", height=80, border_width=1)
-                self.txt_details.pack(fill="x", pady=(0, 15))
+                self.txt_details.pack(fill="x", pady=(0, 10))
                 
-                ctk.CTkLabel(right_col, text="Task", text_color="black").pack(anchor="w", pady=(0, 2))
-                self.combo_task = ctk.CTkComboBox(right_col, values=["Without task", "Task 1", "Task 2"], fg_color="white", text_color="black")
+                ctk.CTkLabel(right_col, text="Task", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
+                self.combo_task = ctk.CTkComboBox(right_col, values=["Without task", "Task 1", "Task 2"], fg_color="white", text_color="black", button_color="#cbd5e1")
                 self.combo_task.pack(fill="x", pady=(0, 15))
 
-            # Hàm format giây thành chuỗi "X sec" hoặc "X min" hoặc "X hr X min" đẹp đẽ
+                # Start of work
+                ctk.CTkLabel(right_col, text="Start of work", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
+                start_frame = ctk.CTkFrame(right_col, fg_color="transparent")
+                start_frame.pack(fill="x", pady=(0, 15))
+                
+                self.entry_start_h = ctk.CTkEntry(start_frame, width=45, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_start_h.pack(side="left")
+                ctk.CTkLabel(start_frame, text=" : ", text_color="black").pack(side="left")
+                self.entry_start_m = ctk.CTkEntry(start_frame, width=45, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_start_m.pack(side="left", padx=(0, 10))
+                
+                self.btn_am = ctk.CTkButton(start_frame, text="AM", width=35, height=30, fg_color="transparent", text_color="black", border_width=1, border_color="#cbd5e1", command=lambda: self.set_ampm(False))
+                self.btn_am.pack(side="left", padx=2)
+                self.btn_pm = ctk.CTkButton(start_frame, text="PM", width=35, height=30, fg_color="#0056b3", text_color="white", command=lambda: self.set_ampm(True))
+                self.btn_pm.pack(side="left", padx=2)
+
+                # Working time
+                ctk.CTkLabel(right_col, text="Working time (Manual Edit)", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
+                work_time_frame = ctk.CTkFrame(right_col, fg_color="transparent")
+                work_time_frame.pack(fill="x")
+                
+                self.entry_work_h = ctk.CTkEntry(work_time_frame, width=55, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_work_h.pack(side="left")
+                ctk.CTkLabel(work_time_frame, text=" hr  ", text_color="black").pack(side="left")
+                
+                self.entry_work_m = ctk.CTkEntry(work_time_frame, width=55, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_work_m.pack(side="left")
+                ctk.CTkLabel(work_time_frame, text=" min", text_color="black").pack(side="left")
+
             def format_time(self, seconds):
                 if seconds < 60:
                     return f"{seconds} sec"
                 minutes = seconds // 60
-                rem_seconds = seconds % 60
                 if minutes < 60:
                     return f"{minutes} min"
                 hours = minutes // 60
@@ -105,13 +131,11 @@ jobs:
                 return f"{hours} hr {rem_minutes} min"
 
             def render_tasks(self):
-                # Xóa giao diện cũ
                 for widget in self.left_col.winfo_children():
                     if isinstance(widget, ctk.CTkFrame):
                         widget.destroy()
                 self.task_frames.clear()
                 
-                # Cập nhật tổng thời gian trên thanh tiêu đề ngày tháng
                 total_seconds = sum(t["seconds"] for t in self.tasks)
                 self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
                 
@@ -129,10 +153,8 @@ jobs:
                     lbl_time = ctk.CTkLabel(task_item, text=self.format_time(t["seconds"]), text_color=txt_color)
                     lbl_time.pack(side="right", padx=15)
                     
-                    # Lưu lại label thời gian để update sau mỗi giây mà không cần vẽ lại toàn bộ giao diện
                     self.task_frames[t["id"]] = {"frame": task_item, "name_lbl": lbl_name, "time_lbl": lbl_time}
                     
-                    # Gán sự kiện click chọn task
                     task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
                     lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
                     lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
@@ -142,64 +164,48 @@ jobs:
                 for t in self.tasks:
                     t["selected"] = (t["id"] == item_id)
                 self.render_tasks()
+                self.load_task_details(item_id)
 
-            # --- VÒNG LẶP ĐẾM THỜI GIAN THEO GIÂY REAL-TIME ---
-            def update_timer_loop(self):
-                if self.is_running:
-                    for t in self.tasks:
-                        if t["selected"]:
-                            t["seconds"] += 1
-                            # Cập nhật trực tiếp lên giao diện cho mượt
-                            if t["id"] in self.task_frames:
-                                self.task_frames[t["id"]]["time_lbl"].configure(text=self.format_time(t["seconds"]))
-                            
-                            # Cập nhật lại tổng thời gian ở tiêu đề ngày tháng
-                            total_seconds = sum(t["seconds"] for t in self.tasks)
-                            self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
-                            break
-                            
-                # Cứ sau 1000ms (1 giây) gọi lại hàm này một lần
-                self.after(1000, self.update_timer_loop)
+            def load_task_details(self, item_id):
+                for t in self.tasks:
+                    if t["id"] == item_id:
+                        self.entry_desc.delete(0, tk.END)
+                        self.entry_desc.insert(0, t["desc"])
+                        self.txt_details.delete("1.0", tk.END)
+                        self.txt_details.insert("1.0", t["details"])
+                        self.combo_task.set(t["task_type"])
+                        self.entry_start_h.delete(0, tk.END)
+                        self.entry_start_h.insert(0, t["start_h"])
+                        self.entry_start_m.delete(0, tk.END)
+                        self.entry_start_m.insert(0, t["start_m"])
+                        self.set_ampm(t["is_pm"])
+                        
+                        h = t["seconds"] // 3600
+                        m = (t["seconds"] % 3600) // 60
+                        self.entry_work_h.delete(0, tk.END)
+                        self.entry_work_h.insert(0, f"{h:02d}")
+                        self.entry_work_m.delete(0, tk.END)
+                        self.entry_work_m.insert(0, f"{m:02d}")
+                        break
 
-            # Hàm Stop work: Dừng đếm giờ hoàn toàn và reset trạng thái nút bấm
-            def stop_work(self):
-                self.is_running = False
-                self.btn_stop.configure(fg_color="#94a3b8", text="⏹ Stopped")
-                self.btn_pause.configure(text="⏸ Pause work", fg_color="transparent", text_color="black")
-
-            # Hàm Pause / Resume work: Tạm dừng hoặc tiếp tục đếm giờ
-            def toggle_pause(self):
-                if not self.btn_stop.cget("text") == "⏹ Stopped": # Chỉ hoạt động nếu chưa bấm Stop
-                    self.is_running = not self.is_running
-                    if self.is_running:
-                        self.btn_pause.configure(text="⏸ Pause work", fg_color="transparent", text_color="black")
-                    else:
-                        self.btn_pause.configure(text="▶ Resume work", fg_color="#e2e8f0", text_color="black")
-
-            def add_task(self):
-                new_id = max([t["id"] for t in self.tasks]) + 1 if self.tasks else 1
-                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "seconds": 0, "selected": False}
-                self.tasks.append(new_task)
+            def save_task_details(self):
+                for t in self.tasks:
+                    if t["id"] == self.selected_task_id:
+                        t["desc"] = self.entry_desc.get()
+                        t["details"] = self.txt_details.get("1.0", tk.END).strip()
+                        t["task_type"] = self.combo_task.get()
+                        t["start_h"] = self.entry_start_h.get()
+                        t["start_m"] = self.entry_start_m.get()
+                        t["is_pm"] = self.is_pm
+                        try:
+                            h = int(self.entry_work_h.get())
+                            m = int(self.entry_work_m.get())
+                            t["seconds"] = (h * 3600) + (m * 60)
+                        except ValueError:
+                            pass
+                        if t["desc"]:
+                            t["name"] = f"{t['desc']} • {t['task_type']}"
+                        else:
+                            t["name"] = f"Task {t['id']} • {t['task_type']}" if t["id"] != 1 else f"Without task"
+                        break
                 self.render_tasks()
-                
-            def delete_task(self):
-                self.tasks = [t for t in self.tasks if not t["selected"]]
-                if self.tasks:
-                    self.tasks[0]["selected"] = True
-                    self.selected_task_id = self.tasks[0]["id"]
-                self.render_tasks()
-
-        if __name__ == "__main__":
-            App = TimeTrackerApp()
-            App.mainloop()
-        "@
-        Set-Content -Path "time_tracker.py" -Value $code -Encoding utf8
-    - name: Cài đặt thư viện và Đóng gói
-      run: |
-        pip install pyinstaller customtkinter pillow
-        pyinstaller --noconsole --onefile time_tracker.py
-    - name: Tải file lên để người dùng download
-      uses: actions/upload-artifact@v4
-      with:
-        name: Time-Tracker-Full-EXE
-        path: dist/time_tracker.exe
