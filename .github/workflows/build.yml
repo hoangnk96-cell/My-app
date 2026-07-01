@@ -102,4 +102,186 @@ jobs:
                 self.entry_start_m.pack(side="left", padx=(0, 10))
                 
                 self.btn_am = ctk.CTkButton(start_frame, text="AM", width=35, height=30, fg_color="transparent", text_color="black", border_width=1, border_color="#cbd5e1", command=lambda: self.set_ampm(False))
-                self.btn_am
+                self.btn_am.pack(side="left", padx=2)
+                self.btn_pm = ctk.CTkButton(start_frame, text="PM", width=35, height=30, fg_color="#0056b3", text_color="white", command=lambda: self.set_ampm(True))
+                self.btn_pm.pack(side="left", padx=2)
+
+                # Working time field panel
+                ctk.CTkLabel(right_col, text="Working time (Manual Edit)", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
+                work_time_frame = ctk.CTkFrame(right_col, fg_color="transparent")
+                work_time_frame.pack(fill="x")
+                
+                self.entry_work_h = ctk.CTkEntry(work_time_frame, width=55, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_work_h.pack(side="left")
+                ctk.CTkLabel(work_time_frame, text=" hr  ", text_color="black").pack(side="left")
+                
+                self.entry_work_m = ctk.CTkEntry(work_time_frame, width=55, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_work_m.pack(side="left")
+                ctk.CTkLabel(work_time_frame, text=" min", text_color="black").pack(side="left")
+
+            def format_time(self, seconds):
+                if seconds < 60:
+                    return f"{seconds} sec"
+                minutes = seconds // 60
+                if minutes < 60:
+                    return f"{minutes} min"
+                hours = minutes // 60
+                rem_minutes = minutes % 60
+                return f"{hours} hr {rem_minutes} min"
+
+            def render_tasks(self):
+                for widget in self.left_col.winfo_children():
+                    if isinstance(widget, ctk.CTkFrame):
+                        widget.destroy()
+                self.task_frames.clear()
+                
+                total_seconds = sum(t["seconds"] for t in self.tasks)
+                self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
+                
+                for t in self.tasks:
+                    bg_color = "#3b82f6" if t["selected"] else "#f8f9fa"
+                    txt_color = "white" if t["selected"] else "black"
+                    
+                    task_item = ctk.CTkFrame(self.left_col, fg_color=bg_color, height=50, corner_radius=4)
+                    task_item.pack(fill="x", pady=2, padx=5)
+                    task_item.pack_propagate(False)
+                    
+                    lbl_name = ctk.CTkLabel(task_item, text=t["name"], text_color=txt_color)
+                    lbl_name.pack(side="left", padx=15)
+                    
+                    lbl_time = ctk.CTkLabel(task_item, text=self.format_time(t["seconds"]), text_color=txt_color)
+                    lbl_time.pack(side="right", padx=15)
+                    
+                    self.task_frames[t["id"]] = {"frame": task_item, "name_lbl": lbl_name, "time_lbl": lbl_time}
+                    
+                    task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+
+            def select_task(self, item_id):
+                self.selected_task_id = item_id
+                for t in self.tasks:
+                    t["selected"] = (t["id"] == item_id)
+                self.render_tasks()
+                self.load_task_details(item_id)
+
+            def load_task_details(self, item_id):
+                for t in self.tasks:
+                    if t["id"] == item_id:
+                        self.entry_desc.delete(0, tk.END)
+                        self.entry_desc.insert(0, t["desc"])
+                        self.txt_details.delete("1.0", tk.END)
+                        self.txt_details.insert("1.0", t["details"])
+                        self.combo_task.set(t["task_type"])
+                        self.entry_start_h.delete(0, tk.END)
+                        self.entry_start_h.insert(0, t["start_h"])
+                        self.entry_start_m.delete(0, tk.END)
+                        self.entry_start_m.insert(0, t["start_m"])
+                        self.set_ampm(t["is_pm"])
+                        
+                        h = t["seconds"] // 3600
+                        m = (t["seconds"] % 3600) // 60
+                        self.entry_work_h.delete(0, tk.END)
+                        self.entry_work_h.insert(0, f"{h:02d}")
+                        self.entry_work_m.delete(0, tk.END)
+                        self.entry_work_m.insert(0, f"{m:02d}")
+                        break
+
+            def save_task_details(self):
+                for t in self.tasks:
+                    if t["id"] == self.selected_task_id:
+                        t["desc"] = self.entry_desc.get()
+                        t["details"] = self.txt_details.get("1.0", tk.END).strip()
+                        t["task_type"] = self.combo_task.get()
+                        t["start_h"] = self.entry_start_h.get()
+                        t["start_m"] = self.entry_start_m.get()
+                        t["is_pm"] = self.is_pm
+                        try:
+                            h = int(self.entry_work_h.get())
+                            m = int(self.entry_work_m.get())
+                            t["seconds"] = (h * 3600) + (m * 60)
+                        except ValueError:
+                            pass
+                        if t["desc"]:
+                            t["name"] = f"{t['desc']} • {t['task_type']}"
+                        else:
+                            t["name"] = f"Task {t['id']} • {t['task_type']}" if t["id"] != 1 else f"Without task"
+                        break
+                self.render_tasks()
+
+            def set_ampm(self, is_pm):
+                self.is_pm = is_pm
+                if is_pm:
+                    self.btn_pm.configure(fg_color="#0056b3", text_color="white")
+                    self.btn_am.configure(fg_color="transparent", text_color="black")
+                else:
+                    self.btn_am.configure(fg_color="#0056b3", text_color="white")
+                    self.btn_pm.configure(fg_color="transparent", text_color="black")
+
+            # --- REAL-TIME TICK LOOP ---
+            def update_timer_loop(self):
+                if self.is_running:
+                    for t in self.tasks:
+                        if t["selected"]:
+                            t["seconds"] += 1
+                            if t["id"] in self.task_frames:
+                                self.task_frames[t["id"]]["time_lbl"].configure(text=self.format_time(t["seconds"]))
+                            
+                            if not self.focus_get() in [self.entry_work_h, self.entry_work_m]:
+                                h = t["seconds"] // 3600
+                                m = (t["seconds"] % 3600) // 60
+                                self.entry_work_h.delete(0, tk.END)
+                                self.entry_work_h.insert(0, f"{h:02d}")
+                                self.entry_work_m.delete(0, tk.END)
+                                self.entry_work_m.insert(0, f"{m:02d}")
+                                
+                            total_seconds = sum(t["seconds"] for t in self.tasks)
+                            self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
+                            break
+                self.after(1000, self.update_timer_loop)
+
+            def toggle_work_status(self):
+                self.is_running = not self.is_running
+                if self.is_running:
+                    self.btn_toggle_work.configure(text="⏹ Stop work", fg_color="#1f2937")
+                    self.btn_pause.configure(text="⏸ Pause work", fg_color="transparent", text_color="black")
+                else:
+                    self.btn_toggle_work.configure(text="▶ Start work", fg_color="#0056b3")
+
+            def toggle_pause(self):
+                if self.is_running or self.btn_pause.cget("text") == "▶ Resume work":
+                    self.is_running = not self.is_running
+                    if self.is_running:
+                        self.btn_pause.configure(text="⏸ Pause work", fg_color="transparent", text_color="black")
+                        self.btn_toggle_work.configure(text="⏹ Stop work", fg_color="#1f2937")
+                    else:
+                        self.btn_pause.configure(text="▶ Resume work", fg_color="#e2e8f0", text_color="black")
+
+            def add_task(self):
+                new_id = max([t["id"] for t in self.tasks]) + 1 if self.tasks else 1
+                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "seconds": 0, "desc": "", "details": "", "task_type": "Without task", "start_h": "12", "start_m": "00", "is_pm": True}
+                self.tasks.append(new_task)
+                self.render_tasks()
+                self.select_task(new_id)
+                
+            def delete_task(self):
+                self.tasks = [t for t in self.tasks if not t["selected"]]
+                if self.tasks:
+                    self.tasks[0]["selected"] = True
+                    self.selected_task_id = self.tasks[0]["id"]
+                self.render_tasks()
+
+        if __name__ == "__main__":
+            App = TimeTrackerApp()
+            App.mainloop()
+        "@
+        Set-Content -Path "time_tracker.py" -Value $code -Encoding utf8
+    - name: Install dependencies and compile
+      run: |
+        pip install pyinstaller customtkinter pillow
+        pyinstaller --noconsole --onefile time_tracker.py
+    - name: Upload production artifact for download
+      uses: actions/upload-artifact@v4
+      with:
+        name: Time-Tracker-Full-EXE
+        path: dist/time_tracker.exe
