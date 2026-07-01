@@ -22,16 +22,16 @@ jobs:
                 self.geometry("1000x630")
                 self.configure(fg_color="#f5f5f5")
                 
-                # Default app state is stopped until user interactions
                 self.is_running = False  
                 self.is_pm = True 
                 
                 self.tasks = [
-                    {"id": 1, "name": "Without task", "seconds": 2, "desc": "", "details": "", "task_type": "Without task", "start_h": "03", "start_m": "36", "is_pm": True},
-                    {"id": 2, "name": "Task 2 • Without task", "seconds": 60, "desc": "srgdfg", "details": "ádfgsfdg", "task_type": "Without task", "start_h": "01", "start_m": "20", "is_pm": True},
-                    {"id": 3, "name": "Task 1 • Without task", "seconds": 60, "desc": "", "details": "", "task_type": "Without task", "start_h": "11", "start_m": "05", "is_pm": False},
+                    {"id": 1, "name": "Without task", "seconds": 2, "desc": "", "details": "", "task_type": "Without task", "start_h": "03", "start_m": "36", "is_pm": True, "selected": True},
+                    {"id": 2, "name": "Task 2 • Without task", "seconds": 60, "desc": "srgdfg", "details": "ádfgsfdg", "task_type": "Without task", "start_h": "01", "start_m": "20", "is_pm": True, "selected": False},
+                    {"id": 3, "name": "Task 1 • Without task", "seconds": 60, "desc": "", "details": "", "task_type": "Without task", "start_h": "11", "start_m": "05", "is_pm": False, "selected": False},
                 ]
                 self.selected_task_id = 1
+                self.task_frames = {}
                 
                 self.init_ui()
                 self.load_task_details(1) 
@@ -70,7 +70,6 @@ jobs:
                 self.date_lbl = ctk.CTkLabel(self.left_col, text="", font=("Arial", 14, "bold"), text_color="black")
                 self.date_lbl.pack(anchor="w", padx=10, pady=10)
                 
-                self.task_frames = {}
                 self.render_tasks()
 
                 # Right Column Form Panel
@@ -139,8 +138,9 @@ jobs:
                 self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
                 
                 for t in self.tasks:
-                    bg_color = "#3b82f6" if t["selected"] else "#f8f9fa"
-                    txt_color = "white" if t["selected"] else "black"
+                    is_sel = t.get("selected", False)
+                    bg_color = "#3b82f6" if is_sel else "#f8f9fa"
+                    txt_color = "white" if is_sel else "black"
                     
                     task_item = ctk.CTkFrame(self.left_col, fg_color=bg_color, height=50, corner_radius=4)
                     task_item.pack(fill="x", pady=2, padx=5)
@@ -169,15 +169,15 @@ jobs:
                 for t in self.tasks:
                     if t["id"] == item_id:
                         self.entry_desc.delete(0, tk.END)
-                        self.entry_desc.insert(0, t["desc"])
+                        self.entry_desc.insert(0, t.get("desc", ""))
                         self.txt_details.delete("1.0", tk.END)
-                        self.txt_details.insert("1.0", t["details"])
-                        self.combo_task.set(t["task_type"])
+                        self.txt_details.insert("1.0", t.get("details", ""))
+                        self.combo_task.set(t.get("task_type", "Without task"))
                         self.entry_start_h.delete(0, tk.END)
-                        self.entry_start_h.insert(0, t["start_h"])
+                        self.entry_start_h.insert(0, t.get("start_h", "12"))
                         self.entry_start_m.delete(0, tk.END)
-                        self.entry_start_m.insert(0, t["start_m"])
-                        self.set_ampm(t["is_pm"])
+                        self.entry_start_m.insert(0, t.get("start_m", "00"))
+                        self.set_ampm(t.get("is_pm", True))
                         
                         h = t["seconds"] // 3600
                         m = (t["seconds"] % 3600) // 60
@@ -218,11 +218,10 @@ jobs:
                     self.btn_am.configure(fg_color="#0056b3", text_color="white")
                     self.btn_pm.configure(fg_color="transparent", text_color="black")
 
-            # --- REAL-TIME TICK LOOP ---
             def update_timer_loop(self):
                 if self.is_running:
                     for t in self.tasks:
-                        if t["selected"]:
+                        if t.get("selected", False):
                             t["seconds"] += 1
                             if t["id"] in self.task_frames:
                                 self.task_frames[t["id"]]["time_lbl"].configure(text=self.format_time(t["seconds"]))
@@ -259,13 +258,13 @@ jobs:
 
             def add_task(self):
                 new_id = max([t["id"] for t in self.tasks]) + 1 if self.tasks else 1
-                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "seconds": 0, "desc": "", "details": "", "task_type": "Without task", "start_h": "12", "start_m": "00", "is_pm": True}
+                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "seconds": 0, "desc": "", "details": "", "task_type": "Without task", "start_h": "12", "start_m": "00", "is_pm": True, "selected": False}
                 self.tasks.append(new_task)
                 self.render_tasks()
                 self.select_task(new_id)
                 
             def delete_task(self):
-                self.tasks = [t for t in self.tasks if not t["selected"]]
+                self.tasks = [t for t in self.tasks if not t.get("selected", False)]
                 if self.tasks:
                     self.tasks[0]["selected"] = True
                     self.selected_task_id = self.tasks[0]["id"]
