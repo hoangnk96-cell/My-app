@@ -4,7 +4,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-    - name: Tạo file code full chức năng
+    - name: Tạo file code full chức năng có Timer chạy thật
       shell: pwsh
       run: |
         $code = @"
@@ -22,14 +22,19 @@ jobs:
                 self.geometry("1000x600")
                 self.configure(fg_color="#f5f5f5")
                 
-                # Danh sách nhiều task ban đầu
+                # Trạng thái đếm giờ
+                self.is_running = True  # Mặc định mở app lên là chạy luôn
+                
+                # Dữ liệu lưu trữ thời gian bằng giây (để đếm chính xác)
                 self.tasks = [
-                    {"id": 1, "name": "Without task", "time": "2 sec", "selected": True},
-                    {"id": 2, "name": "Task 2 • Without task", "time": "1 min", "selected": False},
-                    {"id": 3, "name": "Task 1 • Without task", "time": "1 min", "selected": False},
+                    {"id": 1, "name": "Without task", "seconds": 2, "selected": True},
+                    {"id": 2, "name": "Task 2 • Without task", "seconds": 60, "selected": False},
+                    {"id": 3, "name": "Task 1 • Without task", "seconds": 60, "selected": False},
                 ]
                 self.selected_task_id = 1
+                
                 self.init_ui()
+                self.update_timer_loop() # Kích hoạt bộ đếm thời gian
 
             def init_ui(self):
                 # --- TOP BAR ---
@@ -45,8 +50,13 @@ jobs:
                 action_frame = ctk.CTkFrame(self, fg_color="transparent")
                 action_frame.pack(fill="x", padx=20, pady=5)
                 
-                ctk.CTkButton(action_frame, text="⏹ Stop work", width=90, fg_color="transparent", text_color="black").pack(side="left", padx=5)
-                ctk.CTkButton(action_frame, text="⏸ Pause work", width=90, fg_color="transparent", text_color="black").pack(side="left", padx=5)
+                # Các nút Stop / Pause bấm được thật
+                self.btn_stop = ctk.CTkButton(action_frame, text="⏹ Stop work", width=90, fg_color="#1f2937", text_color="white", command=self.stop_work)
+                self.btn_stop.pack(side="left", padx=5)
+                
+                self.btn_pause = ctk.CTkButton(action_frame, text="⏸ Pause work", width=90, fg_color="transparent", text_color="black", hover_color="#e2e8f0", command=self.toggle_pause)
+                self.btn_pause.pack(side="left", padx=5)
+                
                 ctk.CTkButton(action_frame, text="💾 Save", width=70, fg_color="transparent", text_color="black").pack(side="right", padx=5)
                 ctk.CTkButton(action_frame, text="🗑 Delete", width=70, fg_color="transparent", text_color="black", command=self.delete_task).pack(side="right", padx=5)
 
@@ -58,9 +68,11 @@ jobs:
                 self.left_col = ctk.CTkScrollableFrame(main_frame, fg_color="white", corner_radius=8, border_width=1, border_color="#e0e0e0")
                 self.left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
                 
-                date_lbl = ctk.CTkLabel(self.left_col, text=" Wed, 01/07/2026           2 min", font=("Arial", 14, "bold"), text_color="black")
-                date_lbl.pack(anchor="w", padx=10, pady=10)
+                # Tính tổng thời gian hiển thị ở tiêu đề ngày tháng
+                self.date_lbl = ctk.CTkLabel(self.left_col, text="", font=("Arial", 14, "bold"), text_color="black")
+                self.date_lbl.pack(anchor="w", padx=10, pady=10)
                 
+                self.task_frames = {} # Lưu lại các widget để cập nhật thời gian real-time không bị giật màn hình
                 self.render_tasks()
 
                 # Form bên phải
@@ -80,10 +92,29 @@ jobs:
                 self.combo_task = ctk.CTkComboBox(right_col, values=["Without task", "Task 1", "Task 2"], fg_color="white", text_color="black")
                 self.combo_task.pack(fill="x", pady=(0, 15))
 
+            # Hàm format giây thành chuỗi "X sec" hoặc "X min" hoặc "X hr X min" đẹp đẽ
+            def format_time(self, seconds):
+                if seconds < 60:
+                    return f"{seconds} sec"
+                minutes = seconds // 60
+                rem_seconds = seconds % 60
+                if minutes < 60:
+                    return f"{minutes} min"
+                hours = minutes // 60
+                rem_minutes = minutes % 60
+                return f"{hours} hr {rem_minutes} min"
+
             def render_tasks(self):
+                # Xóa giao diện cũ
                 for widget in self.left_col.winfo_children():
                     if isinstance(widget, ctk.CTkFrame):
                         widget.destroy()
+                self.task_frames.clear()
+                
+                # Cập nhật tổng thời gian trên thanh tiêu đề ngày tháng
+                total_seconds = sum(t["seconds"] for t in self.tasks)
+                self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
+                
                 for t in self.tasks:
                     bg_color = "#3b82f6" if t["selected"] else "#f8f9fa"
                     txt_color = "white" if t["selected"] else "black"
@@ -95,10 +126,13 @@ jobs:
                     lbl_name = ctk.CTkLabel(task_item, text=t["name"], text_color=txt_color)
                     lbl_name.pack(side="left", padx=15)
                     
-                    lbl_time = ctk.CTkLabel(task_item, text=t["time"], text_color=txt_color)
+                    lbl_time = ctk.CTkLabel(task_item, text=self.format_time(t["seconds"]), text_color=txt_color)
                     lbl_time.pack(side="right", padx=15)
                     
-                    # Click để chọn task và đổi màu
+                    # Lưu lại label thời gian để update sau mỗi giây mà không cần vẽ lại toàn bộ giao diện
+                    self.task_frames[t["id"]] = {"frame": task_item, "name_lbl": lbl_name, "time_lbl": lbl_time}
+                    
+                    # Gán sự kiện click chọn task
                     task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
                     lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
                     lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
@@ -109,9 +143,42 @@ jobs:
                     t["selected"] = (t["id"] == item_id)
                 self.render_tasks()
 
+            # --- VÒNG LẶP ĐẾM THỜI GIAN THEO GIÂY REAL-TIME ---
+            def update_timer_loop(self):
+                if self.is_running:
+                    for t in self.tasks:
+                        if t["selected"]:
+                            t["seconds"] += 1
+                            # Cập nhật trực tiếp lên giao diện cho mượt
+                            if t["id"] in self.task_frames:
+                                self.task_frames[t["id"]]["time_lbl"].configure(text=self.format_time(t["seconds"]))
+                            
+                            # Cập nhật lại tổng thời gian ở tiêu đề ngày tháng
+                            total_seconds = sum(t["seconds"] for t in self.tasks)
+                            self.date_lbl.configure(text=f" Wed, 01/07/2026           {self.format_time(total_seconds)}")
+                            break
+                            
+                # Cứ sau 1000ms (1 giây) gọi lại hàm này một lần
+                self.after(1000, self.update_timer_loop)
+
+            # Hàm Stop work: Dừng đếm giờ hoàn toàn và reset trạng thái nút bấm
+            def stop_work(self):
+                self.is_running = False
+                self.btn_stop.configure(fg_color="#94a3b8", text="⏹ Stopped")
+                self.btn_pause.configure(text="⏸ Pause work", fg_color="transparent", text_color="black")
+
+            # Hàm Pause / Resume work: Tạm dừng hoặc tiếp tục đếm giờ
+            def toggle_pause(self):
+                if not self.btn_stop.cget("text") == "⏹ Stopped": # Chỉ hoạt động nếu chưa bấm Stop
+                    self.is_running = not self.is_running
+                    if self.is_running:
+                        self.btn_pause.configure(text="⏸ Pause work", fg_color="transparent", text_color="black")
+                    else:
+                        self.btn_pause.configure(text="▶ Resume work", fg_color="#e2e8f0", text_color="black")
+
             def add_task(self):
-                new_id = len(self.tasks) + 1
-                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "time": "0 sec", "selected": False}
+                new_id = max([t["id"] for t in self.tasks]) + 1 if self.tasks else 1
+                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "seconds": 0, "selected": False}
                 self.tasks.append(new_task)
                 self.render_tasks()
                 
