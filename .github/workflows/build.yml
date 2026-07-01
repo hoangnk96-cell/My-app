@@ -1,26 +1,130 @@
-name: Build Time Tracker EXE
+name: Build Full Time Tracker EXE
 on: [workflow_dispatch]
 jobs:
   build:
     runs-on: windows-latest
     steps:
-    - name: Tạo file code
+    - name: Tạo file code full chức năng
       shell: pwsh
       run: |
         $code = @"
         import tkinter as tk
         import customtkinter as ctk
-        ctk.set_appearance_mode("Light")
-        class App(ctk.CTk):
+        from datetime import datetime
+
+        ctk.set_appearance_mode("Light")  
+        ctk.set_default_color_theme("blue")
+
+        class TimeTrackerApp(ctk.CTk):
             def __init__(self):
                 super().__init__()
                 self.title("Time Tracking")
                 self.geometry("1000x600")
                 self.configure(fg_color="#f5f5f5")
-                lbl = ctk.CTkLabel(self, text="Time tracking", font=("Arial", 24, "bold"), text_color="black")
-                lbl.pack(pady=20)
+                
+                # Danh sách nhiều task ban đầu
+                self.tasks = [
+                    {"id": 1, "name": "Without task", "time": "2 sec", "selected": True},
+                    {"id": 2, "name": "Task 2 • Without task", "time": "1 min", "selected": False},
+                    {"id": 3, "name": "Task 1 • Without task", "time": "1 min", "selected": False},
+                ]
+                self.selected_task_id = 1
+                self.init_ui()
+
+            def init_ui(self):
+                # --- TOP BAR ---
+                top_frame = ctk.CTkFrame(self, fg_color="transparent")
+                top_frame.pack(fill="x", padx=20, pady=10)
+                title_lbl = ctk.CTkLabel(top_frame, text="Time tracking", font=("Arial", 24, "bold"), text_color="black")
+                title_lbl.pack(side="left")
+                
+                btn_add = ctk.CTkButton(top_frame, text="+ Add work unit", width=100, fg_color="transparent", text_color="#1e293b", hover_color="#e2e8f0", command=self.add_task)
+                btn_add.pack(side="left", padx=20)
+                
+                # --- ACTION BAR ---
+                action_frame = ctk.CTkFrame(self, fg_color="transparent")
+                action_frame.pack(fill="x", padx=20, pady=5)
+                
+                ctk.CTkButton(action_frame, text="⏹ Stop work", width=90, fg_color="transparent", text_color="black").pack(side="left", padx=5)
+                ctk.CTkButton(action_frame, text="⏸ Pause work", width=90, fg_color="transparent", text_color="black").pack(side="left", padx=5)
+                ctk.CTkButton(action_frame, text="💾 Save", width=70, fg_color="transparent", text_color="black").pack(side="right", padx=5)
+                ctk.CTkButton(action_frame, text="🗑 Delete", width=70, fg_color="transparent", text_color="black", command=self.delete_task).pack(side="right", padx=5)
+
+                # --- MAIN BODY ---
+                main_frame = ctk.CTkFrame(self, fg_color="transparent")
+                main_frame.pack(fill="both", expand=True, padx=20, pady=10)
+                
+                # List task bên trái
+                self.left_col = ctk.CTkScrollableFrame(main_frame, fg_color="white", corner_radius=8, border_width=1, border_color="#e0e0e0")
+                self.left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
+                
+                date_lbl = ctk.CTkLabel(self.left_col, text=" Wed, 01/07/2026           2 min", font=("Arial", 14, "bold"), text_color="black")
+                date_lbl.pack(anchor="w", padx=10, pady=10)
+                
+                self.render_tasks()
+
+                # Form bên phải
+                right_col = ctk.CTkFrame(main_frame, fg_color="transparent", width=300)
+                right_col.pack(side="right", fill="both", padx=(10, 0))
+                right_col.pack_propagate(False)
+                
+                ctk.CTkLabel(right_col, text="Description", text_color="black").pack(anchor="w", pady=(0, 2))
+                self.entry_desc = ctk.CTkEntry(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", height=35)
+                self.entry_desc.pack(fill="x", pady=(0, 15))
+                
+                ctk.CTkLabel(right_col, text="Details", text_color="black").pack(anchor="w", pady=(0, 2))
+                self.txt_details = ctk.CTkTextbox(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", height=80, border_width=1)
+                self.txt_details.pack(fill="x", pady=(0, 15))
+                
+                ctk.CTkLabel(right_col, text="Task", text_color="black").pack(anchor="w", pady=(0, 2))
+                self.combo_task = ctk.CTkComboBox(right_col, values=["Without task", "Task 1", "Task 2"], fg_color="white", text_color="black")
+                self.combo_task.pack(fill="x", pady=(0, 15))
+
+            def render_tasks(self):
+                for widget in self.left_col.winfo_children():
+                    if isinstance(widget, ctk.CTkFrame):
+                        widget.destroy()
+                for t in self.tasks:
+                    bg_color = "#3b82f6" if t["selected"] else "#f8f9fa"
+                    txt_color = "white" if t["selected"] else "black"
+                    
+                    task_item = ctk.CTkFrame(self.left_col, fg_color=bg_color, height=50, corner_radius=4)
+                    task_item.pack(fill="x", pady=2, padx=5)
+                    task_item.pack_propagate(False)
+                    
+                    lbl_name = ctk.CTkLabel(task_item, text=t["name"], text_color=txt_color)
+                    lbl_name.pack(side="left", padx=15)
+                    
+                    lbl_time = ctk.CTkLabel(task_item, text=t["time"], text_color=txt_color)
+                    lbl_time.pack(side="right", padx=15)
+                    
+                    # Click để chọn task và đổi màu
+                    task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+
+            def select_task(self, item_id):
+                self.selected_task_id = item_id
+                for t in self.tasks:
+                    t["selected"] = (t["id"] == item_id)
+                self.render_tasks()
+
+            def add_task(self):
+                new_id = len(self.tasks) + 1
+                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "time": "0 sec", "selected": False}
+                self.tasks.append(new_task)
+                self.render_tasks()
+                
+            def delete_task(self):
+                self.tasks = [t for t in self.tasks if not t["selected"]]
+                if self.tasks:
+                    self.tasks[0]["selected"] = True
+                    self.selected_task_id = self.tasks[0]["id"]
+                self.render_tasks()
+
         if __name__ == "__main__":
-            App().mainloop()
+            App = TimeTrackerApp()
+            App.mainloop()
         "@
         Set-Content -Path "time_tracker.py" -Value $code -Encoding utf8
     - name: Cài đặt thư viện và Đóng gói
@@ -30,5 +134,5 @@ jobs:
     - name: Tải file lên để người dùng download
       uses: actions/upload-artifact@v4
       with:
-        name: Time-Tracker-EXE
+        name: Time-Tracker-Full-EXE
         path: dist/time_tracker.exe
