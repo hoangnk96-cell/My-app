@@ -114,4 +114,227 @@ jobs:
                 self.entry_desc.pack(fill="x", pady=(0, 10))
                 
                 ctk.CTkLabel(right_col, text="Details", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
-                self.txt_details = ctk.CTkTextbox(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", height=80, border_width=
+                self.txt_details = ctk.CTkTextbox(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", height=80, border_width=1)
+                self.txt_details.pack(fill="x", pady=(0, 10))
+                
+                ctk.CTkLabel(right_col, text="Task", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
+                self.combo_task = ctk.CTkComboBox(right_col, values=["Without task", "Task 1", "Task 2"], fg_color="white", text_color="black", button_color="#cbd5e1")
+                self.combo_task.pack(fill="x", pady=(0, 15))
+
+                # Start of work panel settings
+                ctk.CTkLabel(right_col, text="Start of work", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
+                start_frame = ctk.CTkFrame(right_col, fg_color="transparent")
+                start_frame.pack(fill="x", pady=(0, 15))
+                
+                self.entry_start_h = ctk.CTkEntry(start_frame, width=45, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_start_h.pack(side="left")
+                ctk.CTkLabel(start_frame, text=" : ", text_color="black").pack(side="left")
+                self.entry_start_m = ctk.CTkEntry(start_frame, width=45, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_start_m.pack(side="left", padx=(0, 10))
+                
+                self.btn_am = ctk.CTkButton(start_frame, text="AM", width=35, height=30, fg_color="transparent", text_color="black", border_width=1, border_color="#cbd5e1", command=lambda: self.set_ampm(False))
+                self.btn_am.pack(side="left", padx=2)
+                self.btn_pm = ctk.CTkButton(start_frame, text="PM", width=35, height=30, fg_color="#0056b3", text_color="white", command=lambda: self.set_ampm(True))
+                self.btn_pm.pack(side="left", padx=2)
+
+                # Working time field panel
+                ctk.CTkLabel(right_col, text="Working time (Manual Edit)", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
+                work_time_frame = ctk.CTkFrame(right_col, fg_color="transparent")
+                work_time_frame.pack(fill="x")
+                
+                self.entry_work_h = ctk.CTkEntry(work_time_frame, width=55, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_work_h.pack(side="left")
+                ctk.CTkLabel(work_time_frame, text=" hr  ", text_color="black").pack(side="left")
+                
+                self.entry_work_m = ctk.CTkEntry(work_time_frame, width=55, height=30, fg_color="white", text_color="black", justify="center")
+                self.entry_work_m.pack(side="left")
+                ctk.CTkLabel(work_time_frame, text=" min", text_color="black").pack(side="left")
+
+            def format_time(self, seconds):
+                if seconds < 60:
+                    return f"{seconds} sec"
+                minutes = seconds // 60
+                if minutes < 60:
+                    return f"{minutes} min"
+                hours = minutes // 60
+                rem_minutes = minutes % 60
+                return f"{hours} hr {rem_minutes} min"
+
+            def calculate_units(self, seconds):
+                if seconds <= 0:
+                    return 0
+                return math.ceil(seconds / 180)
+
+            def render_tasks(self):
+                for widget in self.left_col.winfo_children():
+                    if isinstance(widget, ctk.CTkFrame):
+                        widget.destroy()
+                self.task_frames.clear()
+                
+                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                total_seconds = sum(t["seconds"] for t in self.tasks)
+                total_units = sum(self.calculate_units(t["seconds"]) for t in self.tasks)
+                
+                self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)} ({total_units} units)")
+                
+                for t in self.tasks:
+                    is_sel = t.get("selected", False)
+                    bg_color = "#3b82f6" if is_sel else "#f8f9fa"
+                    txt_color = "white" if is_sel else "black"
+                    
+                    task_item = ctk.CTkFrame(self.left_col, fg_color=bg_color, height=50, corner_radius=4)
+                    task_item.pack(fill="x", pady=2, padx=5)
+                    task_item.pack_propagate(False)
+                    
+                    lbl_name = ctk.CTkLabel(task_item, text=t["name"], text_color=txt_color)
+                    lbl_name.pack(side="left", padx=15)
+                    
+                    units_count = self.calculate_units(t["seconds"])
+                    unit_text = f"({units_count} unit)" if units_count <= 1 else f"({units_count} units)"
+                    time_and_unit_str = f"{self.format_time(t['seconds'])}   {unit_text}"
+                    
+                    lbl_time = ctk.CTkLabel(task_item, text=time_and_unit_str, text_color=txt_color)
+                    lbl_time.pack(side="right", padx=15)
+                    
+                    self.task_frames[t["id"]] = {"frame": task_item, "name_lbl": lbl_name, "time_lbl": lbl_time}
+                    
+                    task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+
+            def select_task(self, item_id):
+                self.selected_task_id = item_id
+                for t in self.tasks:
+                    t["selected"] = (t["id"] == item_id)
+                self.render_tasks()
+                self.load_task_details(item_id)
+                self.save_data_to_db()
+
+            def load_task_details(self, item_id):
+                for t in self.tasks:
+                    if t["id"] == item_id:
+                        self.entry_desc.delete(0, tk.END)
+                        self.entry_desc.insert(0, t.get("desc", ""))
+                        self.txt_details.delete("1.0", tk.END)
+                        self.txt_details.insert("1.0", t.get("details", ""))
+                        self.combo_task.set(t.get("task_type", "Without task"))
+                        self.entry_start_h.delete(0, tk.END)
+                        self.entry_start_h.insert(0, t.get("start_h", "12"))
+                        self.entry_start_m.delete(0, tk.END)
+                        self.entry_start_m.insert(0, t.get("start_m", "00"))
+                        self.set_ampm(t.get("is_pm", True))
+                        
+                        h = t["seconds"] // 3600
+                        m = (t["seconds"] % 3600) // 60
+                        self.entry_work_h.delete(0, tk.END)
+                        self.entry_work_h.insert(0, f"{h:02d}")
+                        self.entry_work_m.delete(0, tk.END)
+                        self.entry_work_m.insert(0, f"{m:02d}")
+                        break
+
+            # FIXED STRATEGY: Maintain running clock status when updating metadata fields
+            def save_task_details(self):
+                for t in self.tasks:
+                    if t["id"] == self.selected_task_id:
+                        t["desc"] = self.entry_desc.get()
+                        t["details"] = self.txt_details.get("1.0", tk.END).strip()
+                        t["task_type"] = self.combo_task.get()
+                        t["start_h"] = self.entry_start_h.get()
+                        t["start_m"] = self.entry_start_m.get()
+                        t["is_pm"] = self.is_pm
+                        
+                        # Only update manual time overrides if the timer is completely stopped
+                        if not self.is_running:
+                            try:
+                                h = int(self.entry_work_h.get())
+                                m = int(self.entry_work_m.get())
+                                t["seconds"] = (h * 3600) + (m * 60)
+                            except ValueError:
+                                pass
+                                
+                        if t["desc"]:
+                            t["name"] = f"{t['desc']} • {t['task_type']}"
+                        else:
+                            t["name"] = f"Task {t['id']} • {t['task_type']}" if t["id"] != 1 else f"Without task"
+                        break
+                self.render_tasks()
+                self.save_data_to_db()
+
+            def set_ampm(self, is_pm):
+                self.is_pm = is_pm
+                if is_pm:
+                    self.btn_pm.configure(fg_color="#0056b3", text_color="white")
+                    self.btn_am.configure(fg_color="transparent", text_color="black")
+                else:
+                    self.btn_am.configure(fg_color="#0056b3", text_color="white")
+                    self.btn_pm.configure(fg_color="transparent", text_color="black")
+
+            def update_timer_loop(self):
+                if self.is_running:
+                    for t in self.tasks:
+                        if t.get("selected", False):
+                            t["seconds"] += 1
+                            if t["id"] in self.task_frames:
+                                units_count = self.calculate_units(t["seconds"])
+                                unit_text = f"({units_count} unit)" if units_count <= 1 else f"({units_count} units)"
+                                time_and_unit_str = f"{self.format_time(t['seconds'])}   {unit_text}"
+                                self.task_frames[t["id"]]["time_lbl"].configure(text=time_and_unit_str)
+                            
+                            # Update visual inputs dynamically only if the user is not editing them
+                            if not self.focus_get() in [self.entry_work_h, self.entry_work_m]:
+                                h = t["seconds"] // 3600
+                                m = (t["seconds"] % 3600) // 60
+                                self.entry_work_h.delete(0, tk.END)
+                                self.entry_work_h.insert(0, f"{h:02d}")
+                                self.entry_work_m.delete(0, tk.END)
+                                self.entry_work_m.insert(0, f"{m:02d}")
+                                
+                            current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                            total_seconds = sum(t["seconds"] for t in self.tasks)
+                            total_units = sum(self.calculate_units(item["seconds"]) for item in self.tasks)
+                            self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)} ({total_units} units)")
+                            break
+                    if datetime.now().second % 5 == 0:
+                        self.save_data_to_db()
+                        
+                self.after(1000, self.update_timer_loop)
+
+            def toggle_work_status(self):
+                self.is_running = not self.is_running
+                if self.is_running:
+                    self.btn_toggle_work.configure(text="⏹ Stop work", fg_color="#1f2937")
+                else:
+                    self.btn_toggle_work.configure(text="▶ Start work", fg_color="#0056b3")
+                self.save_data_to_db()
+
+            def add_task(self):
+                new_id = max([t["id"] for t in self.tasks]) + 1 if self.tasks else 1
+                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                new_task = {"id": new_id, "name": f"New Task {new_id} • Without task", "seconds": 0, "desc": "", "details": "", "task_type": "Without task", "start_h": "12", "start_m": "00", "is_pm": True, "selected": False, "date": current_date_str}
+                self.tasks.append(new_task)
+                self.render_tasks()
+                self.select_task(new_id)
+                self.save_data_to_db()
+                
+            def delete_task(self):
+                self.tasks = [t for t in self.tasks if not t.get("selected", False)]
+                if self.tasks:
+                    self.tasks[0]["selected"] = True
+                    self.selected_task_id = self.tasks[0]["id"]
+                self.render_tasks()
+                self.save_data_to_db()
+
+        if __name__ == "__main__":
+            App = TimeTrackerApp()
+            App.mainloop()
+        "@
+        Set-Content -Path "time_tracker.py" -Value $code -Encoding utf8
+    - name: Install dependencies and compile
+      run: |
+        pip install pyinstaller customtkinter pillow
+        pyinstaller --noconsole --onefile time_tracker.py
+    - name: Upload production artifact for download
+      uses: actions/upload-artifact@v4
+      with:
+        name: Time-Tracker-Full-EXE
+        path: dist/time_tracker.exe
