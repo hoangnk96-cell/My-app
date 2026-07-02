@@ -167,4 +167,186 @@ jobs:
             def execute_widget_drag(self, event):
                 deltax = event.x - self.widget_x
                 deltay = event.y - self.widget_y
-                x = self.widget.
+                x = self.widget.winfo_x() + deltax
+                y = self.widget.winfo_y() + deltay
+                self.widget.geometry(f"+{x}+{y}")
+
+            def on_minimize_hook(self, event):
+                if self.state() == "iconic" and not self.is_minimized_to_widget:
+                    self.is_minimized_to_widget = True
+                    self.withdraw() 
+                    self.update_floating_widget_content()
+                    self.widget.deiconify() 
+
+            def maximize_to_normal(self):
+                self.is_minimized_to_widget = False
+                self.widget.withdraw() 
+                self.deiconify()       
+                self.state("normal")
+
+            def update_floating_widget_content(self):
+                active_task = next((t for t in self.tasks if t.get("selected", False)), None)
+                if active_task:
+                    name_text = active_task["name"]
+                    if len(name_text) > 22:
+                        name_text = name_text[:20] + "..."
+                    self.widget_task_lbl.configure(text=name_text)
+                    
+                    units = self.calculate_units(active_task["seconds"])
+                    unit_text = "unit" if units <= 1 else "units"
+                    self.widget_time_lbl.configure(text=f"{self.format_time(active_task['seconds'])} ({units} {unit_text})")
+                else:
+                    self.widget_task_lbl.configure(text="No active task")
+                    self.widget_time_lbl.configure(text="0 sec (0 unit)")
+
+            def format_time(self, seconds):
+                if seconds < 60:
+                    return f"{seconds} sec"
+                minutes = seconds // 60
+                if minutes < 60:
+                    return f"{minutes} min"
+                hours = minutes // 60
+                rem_minutes = minutes % 60
+                return f"{hours} hr {rem_minutes} min"
+
+            def calculate_units(self, seconds):
+                if seconds <= 0:
+                    return 0
+                return math.ceil(seconds / 180)
+
+            def render_tasks(self):
+                for widget in self.left_col.winfo_children():
+                    if isinstance(widget, ctk.CTkFrame):
+                        widget.destroy()
+                self.task_frames.clear()
+                
+                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                total_seconds = sum(t["seconds"] for t in self.tasks)
+                total_units = sum(self.calculate_units(t["seconds"]) for t in self.tasks)
+                
+                self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)} ({total_units} units)")
+                
+                for t in self.tasks:
+                    is_sel = t.get("selected", False)
+                    bg_color = "#3b82f6" if is_sel else "#f8f9fa"
+                    txt_color = "white" if is_sel else "black"
+                    
+                    task_item = ctk.CTkFrame(self.left_col, fg_color=bg_color, height=50, corner_radius=4)
+                    task_item.pack(fill="x", pady=2, padx=5)
+                    task_item.pack_propagate(False)
+                    
+                    lbl_name = ctk.CTkLabel(task_item, text=t["name"], text_color=txt_color)
+                    lbl_name.pack(side="left", padx=15)
+                    
+                    units_count = self.calculate_units(t["seconds"])
+                    unit_text = f"({units_count} unit)" if units_count <= 1 else f"({units_count} units)"
+                    time_and_unit_str = f"{self.format_time(t['seconds'])}   {unit_text}"
+                    
+                    lbl_time = ctk.CTkLabel(task_item, text=time_and_unit_str, text_color=txt_color)
+                    lbl_time.pack(side="right", padx=15)
+                    
+                    self.task_frames[t["id"]] = {"frame": task_item, "name_lbl": lbl_name, "time_lbl": lbl_time}
+                    
+                    task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+
+            def select_task(self, item_id):
+                self.selected_task_id = item_id
+                for t in self.tasks:
+                    t["selected"] = (t["id"] == item_id)
+                self.render_tasks()
+                self.load_task_details(item_id)
+                self.save_data_to_db()
+                if self.is_minimized_to_widget:
+                    self.update_floating_widget_content()
+
+            def load_task_details(self, item_id):
+                for t in self.tasks:
+                    if t["id"] == item_id:
+                        self.entry_desc.delete(0, tk.END)
+                        self.entry_desc.insert(0, t.get("desc", ""))
+                        self.txt_details.delete("1.0", tk.END)
+                        self.txt_details.insert("1.0", t.get("details", ""))
+                        break
+
+            def save_task_details(self):
+                for t in self.tasks:
+                    if t["id"] == self.selected_task_id:
+                        t["desc"] = self.entry_desc.get()
+                        t["details"] = self.txt_details.get("1.0", tk.END).strip()
+                        
+                        if t["desc"]:
+                            t["name"] = t["desc"]
+                        else:
+                            t["name"] = f"Task {t['id']}" if t["id"] != 1 else "Without task"
+                        break
+                self.render_tasks()
+                self.save_data_to_db()
+                if self.is_minimized_to_widget:
+                    self.update_floating_widget_content()
+
+            def update_timer_loop(self):
+                if self.is_running:
+                    for t in self.tasks:
+                        if t.get("selected", False):
+                            t["seconds"] += 1
+                            
+                            if t["id"] in self.task_frames and not self.is_minimized_to_widget:
+                                units_count = self.calculate_units(t["seconds"])
+                                unit_text = f"({units_count} unit)" if units_count <= 1 else f"({units_count} units)"
+                                time_and_unit_str = f"{self.format_time(t['seconds'])}   {unit_text}"
+                                self.task_frames[t["id"]]["time_lbl"].configure(text=time_and_unit_str)
+                                
+                            if self.is_minimized_to_widget:
+                                self.update_floating_widget_content()
+                                
+                            current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                            total_seconds = sum(t["seconds"] for t in self.tasks)
+                            total_units = sum(self.calculate_units(item["seconds"]) for item in self.tasks)
+                            self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)} ({total_units} units)")
+                            break
+                    if datetime.now().second % 5 == 0:
+                        self.save_data_to_db()
+                        
+                self.after(1000, self.update_timer_loop)
+
+            def toggle_work_status(self):
+                self.is_running = not self.is_running
+                if self.is_running:
+                    self.btn_toggle_work.configure(text="⏹ Stop work", fg_color="#1f2937")
+                else:
+                    self.btn_toggle_work.configure(text="▶ Start work", fg_color="#0056b3")
+                self.save_data_to_db()
+
+            def add_task(self):
+                new_id = max([t["id"] for t in self.tasks]) + 1 if self.tasks else 1
+                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                new_task = {"id": new_id, "name": f"New Task {new_id}", "seconds": 0, "desc": "", "details": "", "selected": False, "date": current_date_str}
+                self.tasks.append(new_task)
+                self.render_tasks()
+                self.select_task(new_id)
+                self.save_data_to_db()
+                
+            def delete_task(self):
+                self.tasks = [t for t in self.tasks if not t.get("selected", False)]
+                if self.tasks:
+                    self.tasks[0]["selected"] = True
+                    self.selected_task_id = self.tasks[0]["id"]
+                self.render_tasks()
+                self.save_data_to_db()
+
+        if __name__ == "__main__":
+            App = TimeTrackerApp()
+            App.mainloop()
+        "@
+        Set-Content -Path "time_tracker.py" -Value $code -Encoding utf8
+    - name: Install dependencies and compile
+      run: |
+        pip install pyinstaller customtkinter pillow
+        pyinstaller --noconsole --onefile time_tracker.py
+    - name: Upload production artifact for download
+      uses: actions/upload-artifact@v4
+      with:
+        name: Time-Tracker-Full-EXE
+        path: dist/time_tracker.exe
