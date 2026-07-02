@@ -4,7 +4,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-    - name: Create minimalist code with enlarged details field
+    - name: Create minimalist code with Always-On-Top Mini Floating Widget
       shell: pwsh
       run: |
         $code = @"
@@ -31,12 +31,17 @@ jobs:
                 self.is_running = False  
                 self.selected_task_id = 1
                 self.task_frames = {}
+                self.is_minimized_to_widget = False
                 
                 self.load_data_from_db()
-                
                 self.init_ui()
+                self.create_floating_widget()
+                
                 if self.tasks:
                     self.load_task_details(self.selected_task_id) 
+                
+                # Intercept the native Windows minimize event hook
+                self.bind("<Unmap>", self.on_minimize_hook)
                 self.update_timer_loop()
 
             def load_data_from_db(self):
@@ -104,20 +109,91 @@ jobs:
                 
                 self.render_tasks()
 
-                # Right panel Form layout (Minimalist structure)
+                # Right panel Form layout
                 right_col = ctk.CTkFrame(main_frame, fg_color="transparent", width=320)
                 right_col.pack(side="right", fill="both", padx=(10, 0))
                 right_col.pack_propagate(False)
                 
-                # Description
                 ctk.CTkLabel(right_col, text="Description", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
                 self.entry_desc = ctk.CTkEntry(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", height=35)
                 self.entry_desc.pack(fill="x", pady=(0, 15))
                 
-                # Details (Expanded vertically to occupy the remaining layout space)
                 ctk.CTkLabel(right_col, text="Details", text_color="black", font=("Arial", 12)).pack(anchor="w", pady=(5, 2))
                 self.txt_details = ctk.CTkTextbox(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", border_width=1)
                 self.txt_details.pack(fill="both", expand=True, pady=(0, 5))
+
+            # --- ALWAYS ON TOP MINI FLOATING TIMER WIDGET SETUP ---
+            def create_floating_widget(self):
+                self.widget = tk.Toplevel(self)
+                self.widget.title("Mini Timer")
+                self.widget.geometry("320x65+100+100") # Small overlay size configuration
+                self.widget.overrideredirect(True)      # Remove distracting native Windows system window borders
+                self.widget.attributes("-topmost", True) # Enforce ALWAYS ON TOP policy
+                self.widget.configure(bg="#1e293b")      # Dark theme styling for clean visibility
+                
+                # Container frame builder
+                widget_frame = tk.Frame(self.widget, bg="#1e293b")
+                widget_frame.pack(fill="both", expand=True, padx=10, pady=5)
+                
+                # Running task title details label
+                self.widget_task_lbl = tk.Label(widget_frame, text="No task running", font=("Arial", 11, "bold"), fg="#38bdf8", bg="#1e293b", anchor="w")
+                self.widget_task_lbl.pack(side="left", fill="x", expand=True, padx=(5, 5))
+                
+                # Clock and units combined data label
+                self.widget_time_lbl = tk.Label(widget_frame, text="0 sec (0 unit)", font=("Arial", 11, "bold"), fg="#ffffff", bg="#1e293b", anchor="e")
+                self.widget_time_lbl.pack(side="left", padx=5)
+                
+                # Maximize button anchor action
+                btn_max = tk.Button(widget_frame, text="↗", font=("Arial", 10, "bold"), fg="#ffffff", bg="#334155", activebackground="#475569", activeforeground="#ffffff", bd=0, relief="flat", width=3, height=1, command=self.maximize_to_normal)
+                btn_max.pack(side="right", padx=(5, 2))
+                
+                # Drag & Drop movement event logic handlers
+                self.widget.bind("<Button-1>", self.start_widget_drag)
+                self.widget.bind("<B1-Motion>", self.execute_widget_drag)
+                
+                # Hiding overlay canvas window at initial base execution states
+                self.widget.withdraw()
+
+            def start_widget_drag(self, event):
+                self.widget_x = event.x
+                self.widget_y = event.y
+
+            def execute_widget_drag(self, event):
+                deltax = event.x - self.widget_x
+                deltay = event.y - self.widget_y
+                x = self.widget.winfo_x() + deltax
+                y = self.widget.winfo_y() + deltay
+                self.widget.geometry(f"+{x}+{y}")
+
+            def on_minimize_hook(self, event):
+                # Trigger action state conditions specifically when main master app maps down to minimized status icon tray
+                if self.state() == "iconic" and not self.is_minimized_to_widget:
+                    self.is_minimized_to_widget = True
+                    self.withdraw() # Hide large main workspace frame entirely
+                    self.update_floating_widget_content()
+                    self.widget.deiconify() # Reveal compact floating widget block overlay
+
+            def maximize_to_normal(self):
+                self.is_minimized_to_widget = False
+                self.widget.withdraw() # Hide small timer widget framework
+                self.deiconify()       # Re-display structural normal client UI layouts
+                self.state("normal")
+
+            def update_floating_widget_content(self):
+                active_task = next((t for t in self.tasks if t.get("selected", False)), None)
+                if active_task:
+                    # Truncate string gracefully if text character volume is excessive
+                    name_text = active_task["name"]
+                    if len(name_text) > 22:
+                        name_text = name_text[:20] + "..."
+                    self.widget_task_lbl.config(text=name_text)
+                    
+                    units = self.calculate_units(active_task["seconds"])
+                    unit_text = "unit" if units <= 1 else "units"
+                    self.widget_time_lbl.config(text=f"{self.format_time(active_task['seconds'])} ({units} {unit_text})")
+                else:
+                    self.widget_task_lbl.config(text="No active task")
+                    self.widget_time_lbl.config(text="0 sec (0 unit)")
 
             def format_time(self, seconds):
                 if seconds < 60:
@@ -178,6 +254,8 @@ jobs:
                 self.render_tasks()
                 self.load_task_details(item_id)
                 self.save_data_to_db()
+                if self.is_minimized_to_widget:
+                    self.update_floating_widget_content()
 
             def load_task_details(self, item_id):
                 for t in self.tasks:
@@ -201,17 +279,28 @@ jobs:
                         break
                 self.render_tasks()
                 self.save_data_to_db()
+                if self.is_minimized_to_widget:
+                    self.update_floating_widget_content()
 
             def update_timer_loop(self):
                 if self.is_running:
                     for t in self.tasks:
                         if t.get("selected", False):
                             t["seconds"] += 1
-                            if t["id"] in self.task_frames:
+                            
+                            # Standard workspace layout display update routines
+                            if t["id"] in self.task_frames and not self.is_minimized_to_widget:
                                 units_count = self.calculate_units(t["seconds"])
                                 unit_text = f"({units_count} unit)" if units_count <= 1 else f"({units_count} units)"
                                 time_and_unit_str = f"{self.format_time(t['seconds'])}   {unit_text}"
                                 self.task_frames[t["id"]]["time_lbl"].configure(text=time_and_unit_str)
+                                
+                            # Mini overlay engine running update procedures
+                            if self.is_minimized_to_widget:
+                                self.update_floating_widget_content()
+                            
+                            if not self.focus_get() in [self.entry_work_h, self.entry_work_m] if hasattr(self, 'entry_work_h') else True:
+                                pass
                                 
                             current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
                             total_seconds = sum(t["seconds"] for t in self.tasks)
