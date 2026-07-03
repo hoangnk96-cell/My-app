@@ -4,7 +4,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-    - name: Create minimalist code with Redesigned Mini Floating Widget
+    - name: Create code with Dual-Control Mini Floating Widget
       shell: pwsh
       run: |
         $code = @"
@@ -33,43 +33,62 @@ jobs:
                 self.task_frames = {}
                 self.is_minimized_to_widget = False
                 
+                self.date_sections_expanded = {}
+                
                 self.load_data_from_db()
                 self.init_ui()
                 self.create_floating_widget()
                 
-                if self.tasks:
+                if self.all_tasks:
                     self.load_task_details(self.selected_task_id) 
                 
-                # Native Windows minimize state intercept hook
                 self.bind("<Unmap>", self.on_minimize_hook)
                 self.update_timer_loop()
 
             def load_data_from_db(self):
+                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                self.all_tasks = []
+                
                 if os.path.exists(DB_FILE):
                     try:
                         with open(DB_FILE, "r", encoding="utf-8") as f:
                             data = json.load(f)
-                            self.tasks = data.get("tasks", [])
-                            self.selected_task_id = data.get("selected_task_id", 1)
-                            if self.tasks:
-                                return
+                            if isinstance(data, dict) and "tasks" in data:
+                                self.all_tasks = data.get("tasks", [])
+                                self.selected_task_id = data.get("selected_task_id", 1)
+                            elif isinstance(data, list):
+                                self.all_tasks = data
                     except Exception:
                         pass
+
+                existing_dates = sorted(list(set(t.get("date") for t in self.all_tasks if t.get("date"))), reverse=True)
                 
-                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
-                self.tasks = [
-                    {"id": 1, "name": "Without task", "seconds": 2, "desc": "", "details": "", "selected": True, "date": current_date_str},
-                    {"id": 2, "name": "2025 Income tax return", "seconds": 60, "desc": "2025 Income tax return", "details": "", "selected": False, "date": current_date_str},
-                    {"id": 3, "name": "2025 Financial report - ABC Pty Ltd", "seconds": 0, "desc": "2025 Financial report - ABC Pty Ltd", "details": "", "selected": False, "date": current_date_str},
-                ]
-                self.selected_task_id = 1
-                self.save_data_to_db()
+                for d in existing_dates:
+                    if d not in self.date_sections_expanded:
+                        self.date_sections_expanded[d] = (d == current_date_str)
+                
+                today_tasks = [t for t in self.all_tasks if t.get("date") == current_date_str]
+                if not today_tasks:
+                    next_id = max([t["id"] for t in self.all_tasks]) + 1 if self.all_tasks else 1
+                    default_tasks = [
+                        {"id": next_id, "name": "Without task", "seconds": 0, "desc": "", "details": "", "selected": True, "date": current_date_str},
+                        {"id": next_id + 1, "name": "2025 Income tax return", "seconds": 0, "desc": "2025 Income tax return", "details": "", "selected": False, "date": current_date_str},
+                        {"id": next_id + 2, "name": "2025 Financial report - ABC Pty Ltd", "seconds": 0, "desc": "2025 Financial report - ABC Pty Ltd", "details": "", "selected": False, "date": current_date_str},
+                    ]
+                    self.all_tasks.extend(default_tasks)
+                    self.date_sections_expanded[current_date_str] = True
+                    self.selected_task_id = next_id
+                    self.save_data_to_db()
+                else:
+                    if not any(t.get("selected") for t in self.all_tasks):
+                        today_tasks[0]["selected"] = True
+                        self.selected_task_id = today_tasks[0]["id"]
 
             def save_data_to_db(self):
                 try:
                     data = {
                         "selected_task_id": self.selected_task_id,
-                        "tasks": self.tasks
+                        "tasks": self.all_tasks
                     }
                     with open(DB_FILE, "w", encoding="utf-8") as f:
                         json.dump(data, f, ensure_ascii=False, indent=4)
@@ -77,7 +96,6 @@ jobs:
                     print("Error saving database:", e)
 
             def init_ui(self):
-                # --- TOP BAR ---
                 top_frame = ctk.CTkFrame(self, fg_color="transparent")
                 top_frame.pack(fill="x", padx=20, pady=10)
                 title_lbl = ctk.CTkLabel(top_frame, text="Time tracking", font=("Arial", 24, "bold"), text_color="black")
@@ -86,7 +104,6 @@ jobs:
                 btn_add = ctk.CTkButton(top_frame, text="+ Add work unit", width=100, fg_color="transparent", text_color="#1e293b", hover_color="#e2e8f0", command=self.add_task)
                 btn_add.pack(side="left", padx=20)
                 
-                # --- ACTION BAR ---
                 action_frame = ctk.CTkFrame(self, fg_color="transparent")
                 action_frame.pack(fill="x", padx=20, pady=5)
                 
@@ -96,19 +113,14 @@ jobs:
                 ctk.CTkButton(action_frame, text="💾 Save", width=70, fg_color="transparent", text_color="black", command=self.save_task_details).pack(side="right", padx=5)
                 ctk.CTkButton(action_frame, text="🗑 Delete", width=70, fg_color="transparent", text_color="black", command=self.delete_task).pack(side="right", padx=5)
 
-                # --- MAIN BODY ---
                 main_frame = ctk.CTkFrame(self, fg_color="transparent")
                 main_frame.pack(fill="both", expand=True, padx=20, pady=10)
                 
                 self.left_col = ctk.CTkScrollableFrame(main_frame, fg_color="white", corner_radius=8, border_width=1, border_color="#e0e0e0")
                 self.left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
                 
-                self.date_lbl = ctk.CTkLabel(self.left_col, text="", font=("Arial", 14, "bold"), text_color="black")
-                self.date_lbl.pack(anchor="w", padx=10, pady=10)
-                
                 self.render_tasks()
 
-                # Right panel Form layout
                 right_col = ctk.CTkFrame(main_frame, fg_color="transparent", width=320)
                 right_col.pack(side="right", fill="both", padx=(10, 0))
                 right_col.pack_propagate(False)
@@ -121,31 +133,34 @@ jobs:
                 self.txt_details = ctk.CTkTextbox(right_col, fg_color="white", text_color="black", border_color="#cbd5e1", border_width=1)
                 self.txt_details.pack(fill="both", expand=True, pady=(0, 5))
 
-            # --- REDESIGNED MINI FLOATING TIMER WIDGET ---
+            # --- DUAL CONTROL MINI FLOATING WIDGET REDESIGN ---
             def create_floating_widget(self):
                 self.widget = tk.Toplevel(self)
                 self.widget.title("Mini Timer")
-                self.widget.geometry("340x55+120+120") 
+                self.widget.geometry("380x55+120+120") # Expanded dimension slightly to sit control nodes comfortably
                 self.widget.overrideredirect(True)      
                 self.widget.attributes("-topmost", True) 
                 
-                # REDESIGN: Using a high-contrast CustomTkinter CTkFrame to encapsulate layouts safely
                 self.widget_container = ctk.CTkFrame(self.widget, fg_color="#1e293b", corner_radius=6, border_width=1, border_color="#334155")
                 self.widget_container.pack(fill="both", expand=True)
                 
-                # Active task text layout label 
+                # Active metadata task details label
                 self.widget_task_lbl = ctk.CTkLabel(self.widget_container, text="No task running", font=("Arial", 12, "bold"), text_color="#38bdf8", anchor="w")
                 self.widget_task_lbl.pack(side="left", fill="x", expand=True, padx=(12, 5))
                 
-                # Live dynamic clock text layout label
+                # Runtime duration details label
                 self.widget_time_lbl = ctk.CTkLabel(self.widget_container, text="0 sec (0 unit)", font=("Arial", 12, "bold"), text_color="#ffffff", anchor="e")
-                self.widget_time_lbl.pack(side="left", padx=8)
+                self.widget_time_lbl.pack(side="left", padx=5)
                 
-                # REDESIGN: Using a robust CTkButton element instead of traditional legacy Tkinter button canvas
+                # FEATURE INTEGRATED: Direct inline active toggle control switch built right into overlay frame boundaries
+                self.btn_widget_toggle = ctk.CTkButton(self.widget_container, text="▶", font=("Arial", 12, "bold"), text_color="#ffffff", fg_color="#0056b3", hover_color="#004494", width=28, height=28, corner_radius=4, command=self.toggle_work_status)
+                self.btn_widget_toggle.pack(side="left", padx=(5, 4))
+                
+                # Macro restoration client execution window trigger switch
                 self.btn_max = ctk.CTkButton(self.widget_container, text="↗", font=("Arial", 12, "bold"), text_color="#ffffff", fg_color="#334155", hover_color="#475569", width=28, height=28, corner_radius=4, command=self.maximize_to_normal)
                 self.btn_max.pack(side="right", padx=(4, 8))
                 
-                # Bindings for mouse drag and drop controls
+                # Movement binding adjustments
                 self.widget_container.bind("<Button-1>", self.start_widget_drag)
                 self.widget_container.bind("<B1-Motion>", self.execute_widget_drag)
                 self.widget_task_lbl.bind("<Button-1>", self.start_widget_drag)
@@ -153,7 +168,6 @@ jobs:
                 self.widget_time_lbl.bind("<Button-1>", self.start_widget_drag)
                 self.widget_time_lbl.bind("<B1-Motion>", self.execute_widget_drag)
 
-                # REDESIGN BACKUP INTERACTION: Double-click anywhere on the floating frame to restore workspace
                 self.widget_container.bind("<Double-Button-1>", lambda e: self.maximize_to_normal())
                 self.widget_task_lbl.bind("<Double-Button-1>", lambda e: self.maximize_to_normal())
                 self.widget_time_lbl.bind("<Double-Button-1>", lambda e: self.maximize_to_normal())
@@ -185,11 +199,11 @@ jobs:
                 self.state("normal")
 
             def update_floating_widget_content(self):
-                active_task = next((t for t in self.tasks if t.get("selected", False)), None)
+                active_task = next((t for t in self.all_tasks if t.get("selected", False)), None)
                 if active_task:
                     name_text = active_task["name"]
-                    if len(name_text) > 22:
-                        name_text = name_text[:20] + "..."
+                    if len(name_text) > 18:
+                        name_text = name_text[:16] + "..."
                     self.widget_task_lbl.configure(text=name_text)
                     
                     units = self.calculate_units(active_task["seconds"])
@@ -198,6 +212,12 @@ jobs:
                 else:
                     self.widget_task_lbl.configure(text="No active task")
                     self.widget_time_lbl.configure(text="0 sec (0 unit)")
+                
+                # Synchronize toggle glyph displays dynamically on top layer blocks
+                if self.is_running:
+                    self.btn_widget_toggle.configure(text="⏹", fg_color="#1f2937", hover_color="#111827")
+                else:
+                    self.btn_widget_toggle.configure(text="▶", fg_color="#0056b3", hover_color="#004494")
 
             def format_time(self, seconds):
                 if seconds < 60:
@@ -214,46 +234,71 @@ jobs:
                     return 0
                 return math.ceil(seconds / 180)
 
+            def toggle_date_section(self, target_date):
+                self.date_sections_expanded[target_date] = not self.date_sections_expanded.get(target_date, True)
+                self.render_tasks()
+
             def render_tasks(self):
                 for widget in self.left_col.winfo_children():
-                    if isinstance(widget, ctk.CTkFrame):
-                        widget.destroy()
+                    widget.destroy()
                 self.task_frames.clear()
                 
-                current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
-                total_seconds = sum(t["seconds"] for t in self.tasks)
-                total_units = sum(self.calculate_units(t["seconds"]) for t in self.tasks)
+                grouped_tasks = {}
+                for t in self.all_tasks:
+                    d = t.get("date", "Unknown Date")
+                    if d not in grouped_tasks:
+                        grouped_tasks[d] = []
+                    grouped_tasks[d].append(t)
                 
-                self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)} ({total_units} units)")
+                sorted_dates = sorted(list(grouped_tasks.keys()), reverse=True)
                 
-                for t in self.tasks:
-                    is_sel = t.get("selected", False)
-                    bg_color = "#3b82f6" if is_sel else "#f8f9fa"
-                    txt_color = "white" if is_sel else "black"
+                for d in sorted_dates:
+                    day_tasks = grouped_tasks[d]
+                    total_seconds = sum(item["seconds"] for item in day_tasks)
+                    total_units = sum(self.calculate_units(item["seconds"]) for item in day_tasks)
                     
-                    task_item = ctk.CTkFrame(self.left_col, fg_color=bg_color, height=50, corner_radius=4)
-                    task_item.pack(fill="x", pady=2, padx=5)
-                    task_item.pack_propagate(False)
+                    is_expanded = self.date_sections_expanded.get(d, True)
+                    accordion_indicator = "▼" if is_expanded else "▶"
+                    header_text = f" {accordion_indicator}  {d}           {self.format_time(total_seconds)} ({total_units} units)"
                     
-                    lbl_name = ctk.CTkLabel(task_item, text=t["name"], text_color=txt_color)
-                    lbl_name.pack(side="left", padx=15)
+                    header_frame = ctk.CTkFrame(self.left_col, fg_color="transparent", cursor="hand2")
+                    header_frame.pack(fill="x", padx=5, pady=(8, 4))
                     
-                    units_count = self.calculate_units(t["seconds"])
-                    unit_text = f"({units_count} unit)" if units_count <= 1 else f"({units_count} units)"
-                    time_and_unit_str = f"{self.format_time(t['seconds'])}   {unit_text}"
+                    date_lbl = ctk.CTkLabel(header_frame, text=header_text, font=("Arial", 14, "bold"), text_color="black")
+                    date_lbl.pack(anchor="w", padx=5)
                     
-                    lbl_time = ctk.CTkLabel(task_item, text=time_and_unit_str, text_color=txt_color)
-                    lbl_time.pack(side="right", padx=15)
+                    header_frame.bind("<Button-1>", lambda e, target_d=d: self.toggle_date_section(target_d))
+                    date_lbl.bind("<Button-1>", lambda e, target_d=d: self.toggle_date_section(target_d))
                     
-                    self.task_frames[t["id"]] = {"frame": task_item, "name_lbl": lbl_name, "time_lbl": lbl_time}
-                    
-                    task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
-                    lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
-                    lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                    if is_expanded:
+                        for t in day_tasks:
+                            is_sel = t.get("selected", False)
+                            bg_color = "#3b82f6" if is_sel else "#f8f9fa"
+                            txt_color = "white" if is_sel else "black"
+                            
+                            task_item = ctk.CTkFrame(self.left_col, fg_color=bg_color, height=50, corner_radius=4)
+                            task_item.pack(fill="x", pady=2, padx=20) 
+                            task_item.pack_propagate(False)
+                            
+                            lbl_name = ctk.CTkLabel(task_item, text=t["name"], text_color=txt_color)
+                            lbl_name.pack(side="left", padx=15)
+                            
+                            units_count = self.calculate_units(t["seconds"])
+                            unit_text = f"({units_count} unit)" if units_count <= 1 else f"({units_count} units)"
+                            time_and_unit_str = f"{self.format_time(t['seconds'])}   {unit_text}"
+                            
+                            lbl_time = ctk.CTkLabel(task_item, text=time_and_unit_str, text_color=txt_color)
+                            lbl_time.pack(side="right", padx=15)
+                            
+                            self.task_frames[t["id"]] = {"frame": task_item, "name_lbl": lbl_name, "time_lbl": lbl_time}
+                            
+                            task_item.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                            lbl_name.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
+                            lbl_time.bind("<Button-1>", lambda e, item_id=t["id"]: self.select_task(item_id))
 
             def select_task(self, item_id):
                 self.selected_task_id = item_id
-                for t in self.tasks:
+                for t in self.all_tasks:
                     t["selected"] = (t["id"] == item_id)
                 self.render_tasks()
                 self.load_task_details(item_id)
@@ -262,7 +307,7 @@ jobs:
                     self.update_floating_widget_content()
 
             def load_task_details(self, item_id):
-                for t in self.tasks:
+                for t in self.all_tasks:
                     if t["id"] == item_id:
                         self.entry_desc.delete(0, tk.END)
                         self.entry_desc.insert(0, t.get("desc", ""))
@@ -271,7 +316,7 @@ jobs:
                         break
 
             def save_task_details(self):
-                for t in self.tasks:
+                for t in self.all_tasks:
                     if t["id"] == self.selected_task_id:
                         t["desc"] = self.entry_desc.get()
                         t["details"] = self.txt_details.get("1.0", tk.END).strip()
@@ -288,7 +333,7 @@ jobs:
 
             def update_timer_loop(self):
                 if self.is_running:
-                    for t in self.tasks:
+                    for t in self.all_tasks:
                         if t.get("selected", False):
                             t["seconds"] += 1
                             
@@ -300,15 +345,13 @@ jobs:
                                 
                             if self.is_minimized_to_widget:
                                 self.update_floating_widget_content()
-                                
-                            current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
-                            total_seconds = sum(t["seconds"] for t in self.tasks)
-                            total_units = sum(self.calculate_units(item["seconds"]) for item in self.tasks)
-                            self.date_lbl.configure(text=f" {current_date_str}           {self.format_time(total_seconds)} ({total_units} units)")
                             break
                     if datetime.now().second % 5 == 0:
                         self.save_data_to_db()
                         
+                if not self.is_running and self.is_minimized_to_widget:
+                    self.update_floating_widget_content()
+                    
                 self.after(1000, self.update_timer_loop)
 
             def toggle_work_status(self):
@@ -317,22 +360,31 @@ jobs:
                     self.btn_toggle_work.configure(text="⏹ Stop work", fg_color="#1f2937")
                 else:
                     self.btn_toggle_work.configure(text="▶ Start work", fg_color="#0056b3")
+                
+                # Double link updates cleanly back to widget button display layout mirrors
+                if self.is_minimized_to_widget:
+                    self.update_floating_widget_content()
                 self.save_data_to_db()
 
             def add_task(self):
-                new_id = max([t["id"] for t in self.tasks]) + 1 if self.tasks else 1
                 current_date_str = datetime.now().strftime("%a, %d/%m/%Y")
+                new_id = max([t["id"] for t in self.all_tasks]) + 1 if self.all_tasks else 1
                 new_task = {"id": new_id, "name": f"New Task {new_id}", "seconds": 0, "desc": "", "details": "", "selected": False, "date": current_date_str}
-                self.tasks.append(new_task)
+                
+                self.all_tasks.append(new_task)
+                self.date_sections_expanded[current_date_str] = True 
                 self.render_tasks()
                 self.select_task(new_id)
                 self.save_data_to_db()
                 
             def delete_task(self):
-                self.tasks = [t for t in self.tasks if not t.get("selected", False)]
-                if self.tasks:
-                    self.tasks[0]["selected"] = True
-                    self.selected_task_id = self.tasks[0]["id"]
+                task_to_remove = next((t for t in self.all_tasks if t.get("selected", False)), None)
+                if task_to_remove:
+                    self.all_tasks.remove(task_to_remove)
+                
+                if self.all_tasks:
+                    self.all_tasks[0]["selected"] = True
+                    self.selected_task_id = self.all_tasks[0]["id"]
                 self.render_tasks()
                 self.save_data_to_db()
 
